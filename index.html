@@ -1,23 +1,1278 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>J-Town Rental Entry</title><style>
-*{box-sizing:border-box}body{margin:0;background:#f3f3f2;color:#202329;font:16px system-ui,Arial}header{background:#161719;color:#fff;border-bottom:5px solid #d71932;padding:14px 18px}header h1{margin:0;font-size:1.5rem}header p{margin:4px 0 0;color:#ddd}nav{display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:#292b2f;padding:10px 18px}button{font:inherit;background:#d71932;color:#fff;border:0;border-radius:7px;padding:10px 13px;cursor:pointer}.secondary{background:#5c6269}.dark{background:#34383d}button:disabled{opacity:.55;cursor:wait}main,#locked{max-width:1140px;margin:18px auto;padding:0 16px}main[hidden],#locked[hidden],label[hidden],.modal[hidden]{display:none}section{background:#fff;border:1px solid #ddd;border-radius:10px;padding:18px;margin:16px 0}h2{font-size:1.25rem;margin:0 0 13px}p,small{color:#596169}form{display:flex;align-items:end;flex-wrap:wrap;gap:12px}label{display:grid;gap:5px;font-weight:600;font-size:.9rem}input,select{font:inherit;padding:9px;border:1px solid #b9b9b9;border-radius:6px;min-width:150px}.cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.tiles,.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.tile,.card{border:1px solid #ddd;border-radius:8px;padding:12px;background:#fff}.low{background:#fff3d6;border-color:#e0a62e}.none{background:#fde1e4;border-color:#d71932}.error{color:#ac1630;min-height:1.25em}.overdue{color:#ac1630;font-weight:700}.due-ok{color:#137333;font-weight:700}.session{margin-left:auto;color:#fff;font-size:.85rem;display:flex;gap:10px;align-items:center}.muted{color:#596169}.card button{margin:5px 5px 0 0;padding:7px 9px;font-size:.9rem}.modal{position:fixed;z-index:20;inset:0;background:#0009;padding:20px;overflow:auto}.modal-card{max-width:760px;margin:5vh auto;background:#fff;border-radius:12px;padding:22px;box-shadow:0 10px 35px #0007}.modal-card form{align-items:end}.modal-actions{display:flex;gap:10px;flex-wrap:wrap;width:100%;padding-top:6px}@media(max-width:700px){.cols{grid-template-columns:1fr}.session{width:100%;margin-left:0;justify-content:space-between}}
-</style></head><body><section id="locked" hidden><section><h2>Store passkey</h2><form id="unlockForm"><label>Passkey<input id="pass" type="password" autocomplete="current-password" required></label><button id="unlock">Unlock</button></form><p id="message" class="error">Checking session…</p></section></section><div id="app" hidden><header><h1>J-Town Hardware & Rental</h1><p>Rental Entry · staff only</p></header><nav><button data-tab="board">Rental board</button><button data-tab="manager" class="secondary">Manager screen</button><span class="session"><span id="expires"></span><button id="lock" type="button" class="secondary">Lock now</button></span></nav><main id="board"><section><h2>Availability</h2><div id="tiles" class="tiles"></div></section><div class="cols"><section><h2>Reserved</h2><div id="reserved" class="cards"></div></section><section><h2>Out now</h2><div id="out" class="cards"></div></section></div><section><h2>New rental or reservation</h2><form id="bookingForm"><label>Renter name<input id="customer" required></label><label>Phone number<input id="phone" type="tel"></label><label>Item<select id="item" required></select></label><label id="otherLabel" hidden>Untracked item<input id="otherItem" placeholder="Describe item"></label><label>Quantity<input id="quantity" type="number" min="1" value="1" required></label><label>Pickup<input id="pickup" type="datetime-local" required></label><button type="button" id="now" class="dark">Next 15-minute mark</button><label>Rental length<select id="duration"><option value="4">4 hours</option><option value="24">24 hours</option><option value="week">Week rental (5 days)</option><option value="other">Other · enter due time</option></select></label><label>Due back<input id="due" type="datetime-local" required readonly></label><button type="submit" name="status" value="Reserved">Reserve for later</button><button type="submit" name="status" value="Out" class="dark">Rent now</button></form><p id="error" class="error"></p><p>Returns outside store hours are automatically set to the next open day at one hour after opening.</p></section><section><h2>Returned and cancelled</h2><p>History is shown for seven days after it is processed.</p><div id="history" class="cards"></div></section></main><main id="manager" hidden><section><h2>Add inventory</h2><form id="itemForm"><label>Item name<input id="itemName" required></label><label>Quantity owned<input id="total" type="number" min="0" required></label><label>Low-stock alert at or below<input id="low" type="number" min="0" value="1" required></label><button>Add item</button></form><p id="managerMessage"></p><h2>Edit inventory</h2><div id="managerItems" class="cards"></div></section></main></div><div id="editModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="editTitle"><div class="modal-card"><h2 id="editTitle">Edit rental</h2><form id="editBookingForm"><input id="editId" type="hidden"><label>Renter name<input id="editCustomer" required></label><label>Phone number<input id="editPhone" type="tel"></label><label>Item<select id="editItem" required></select></label><label id="editOtherLabel" hidden>Untracked item<input id="editOtherItem" placeholder="Describe item"></label><label>Quantity<input id="editQuantity" type="number" min="1" required></label><label>Pickup<input id="editPickup" type="datetime-local" required></label><label>Due back<input id="editDue" type="datetime-local" required></label><label>Status<select id="editStatus"><option value="Reserved">Reserved</option><option value="Out">Out</option></select></label><div class="modal-actions"><button type="submit">Save changes</button><button type="button" id="cancelEdit" class="secondary">Cancel</button></div></form><p id="editError" class="error"></p></div></div><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script>
-const SUPABASE_URL='https://ybwqrcloxvusfvnmzztg.supabase.co',SUPABASE_KEY='sb_publishable_qxNMFKHrMNfif5k8INoKiQ_GCcw8OEW',PASSKEY_URL=SUPABASE_URL+'/functions/v1/verify-passkey',ACTIONS_URL=SUPABASE_URL+'/functions/v1/rental-actions';
-const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY),E=id=>document.getElementById(id);let inventory=[],bookings=[];const SESSION='jtownSession',EXPIRY='jtownSessionExpiry';
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const dt=x=>new Date(x).toLocaleString();const itemName=b=>inventory.find(i=>i.id===b.item_id)?.name||b.other_name||'Deleted item';const inputTime=d=>{d=new Date(d);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'T'+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
-function showLocked(msg){E('app').hidden=true;E('locked').hidden=false;E('message').textContent=msg;E('pass').focus()}function showApp(exp){E('locked').hidden=true;E('app').hidden=false;E('expires').textContent='Unlocked until '+new Date(exp).toLocaleString();load()}
-async function unlock(){E('message').textContent='Checking passkey…';E('unlock').disabled=true;try{let r=await fetch(PASSKEY_URL,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY},body:JSON.stringify({passkey:E('pass').value})}),j=await r.json().catch(()=>({}));if(!r.ok||!j.token)throw Error(j.error||'Could not unlock.');sessionStorage.setItem(SESSION,j.token);sessionStorage.setItem(EXPIRY,j.expires_at);E('pass').value='';showApp(j.expires_at)}catch(e){E('message').textContent=e.message}finally{E('unlock').disabled=false}}
-E('unlockForm').onsubmit=e=>{e.preventDefault();unlock()};E('lock').onclick=()=>{sessionStorage.clear();showLocked('Locked. Enter the store passkey.')};const tok=sessionStorage.getItem(SESSION),exp=sessionStorage.getItem(EXPIRY);if(tok&&exp&&new Date(exp)>new Date())showApp(exp);else showLocked('Enter the store passkey.');
-async function call(action,payload={}){let token=sessionStorage.getItem(SESSION),r=await fetch(ACTIONS_URL,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'X-JTown-Session':token},body:JSON.stringify({action,...payload})}),j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'Request failed');return j}
-async function load(){let[a,b]=await Promise.all([sb.from('rental_inventory').select('*').order('name'),sb.from('rental_bookings').select('*').order('pickup_at')]);if(a.error||b.error){E('error').textContent=(a.error||b.error).message;return}inventory=a.data;bookings=b.data;render()}
-function available(i){return i.total-bookings.filter(b=>b.item_id===i.id&&b.status==='Out').reduce((n,b)=>n+b.quantity,0)}
-function itemOptions(selected,other){return '<option value="">Choose inventory item</option>'+inventory.map(i=>`<option value="${i.id}" ${i.id===selected?'selected':''}>${esc(i.name)} (${available(i)} available)</option>`).join('')+`<option value="other" ${other?'selected':''}>Other / untracked item</option>`}
-function render(){E('item').innerHTML=itemOptions();E('tiles').innerHTML=inventory.map(i=>{let n=available(i),c=n===0?'none':n<=i.low_stock?'low':'';return `<div class="tile ${c}"><b>${esc(i.name)}</b><br>${n} of ${i.total} available</div>`}).join('')||'<p class="muted">No inventory yet. Add it on Manager screen.</p>';let r=bookings.filter(b=>b.status==='Reserved'),o=bookings.filter(b=>b.status==='Out'),h=bookings.filter(b=>['Returned','Cancelled'].includes(b.status)&&b.completed_at&&Date.now()-new Date(b.completed_at)<7*864e5);E('reserved').innerHTML=r.map(card).join('')||'<p class="muted">Nothing reserved.</p>';E('out').innerHTML=o.map(card).join('')||'<p class="muted">Nothing out.</p>';E('history').innerHTML=h.map(card).join('')||'<p class="muted">No recent returned or cancelled rentals.</p>';E('managerItems').innerHTML=inventory.map(i=>`<div class="card"><b>${esc(i.name)}</b><br>${i.total} owned · low alert ${i.low_stock}<br><button onclick="editItem('${i.id}')">Edit</button><button class="secondary" onclick="deleteItem('${i.id}')">Delete</button></div>`).join('')||'<p class="muted">No inventory yet.</p>'}
-function card(b){let overdue=b.status==='Out'&&new Date(b.due_at)<new Date(),dueClass=overdue?'overdue':b.status==='Out'||b.status==='Reserved'?'due-ok':'',editButton=(b.status==='Reserved'||b.status==='Out')?`<button onclick="editBooking('${b.id}')">Edit</button>`:'',controls=b.status==='Reserved'?`${editButton}<button onclick="setStatus('${b.id}','Out')">Check out</button><button class="secondary" onclick="setStatus('${b.id}','Cancelled')">Cancel</button>`:b.status==='Out'?`${editButton}<button onclick="setStatus('${b.id}','Returned')">Returned</button>`:'';return `<div class="card"><b>${esc(itemName(b))}</b> × ${b.quantity}<br><span class="muted">${esc(b.customer)}${b.phone?' · '+esc(b.phone):''}</span><br>Pickup: ${dt(b.pickup_at)}<br><span class="${dueClass}">Due: ${dt(b.due_at)}${overdue?' · OVERDUE':''}</span><br><small>${b.status}${b.completed_at?' · '+dt(b.completed_at):''}</small><br>${controls}</div>`}
-function nextQuarter(d=new Date()){let x=new Date(d);x.setSeconds(0,0);x.setMinutes(Math.floor(x.getMinutes()/15)*15+15);return x}function setDue(){let p=new Date(E('pickup').value),d=E('duration').value;if(!E('pickup').value)return;if(d==='other'){E('due').readOnly=false;return}E('due').readOnly=true;p.setHours(p.getHours()+(d==='week'?120:+d));E('due').value=inputTime(p)}E('duration').onchange=setDue;E('pickup').onchange=setDue;E('now').onclick=()=>{E('pickup').value=inputTime(nextQuarter());setDue()};
-E('item').onchange=()=>E('otherLabel').hidden=E('item').value!=='other';E('bookingForm').onsubmit=async e=>{e.preventDefault();let status=e.submitter.value;E('error').textContent='';try{await call('create_booking',{customer:E('customer').value,phone:E('phone').value,item_id:E('item').value==='other'?null:E('item').value,other_name:E('item').value==='other'?E('otherItem').value:null,quantity:+E('quantity').value,pickup_at:new Date(E('pickup').value).toISOString(),due_at:new Date(E('due').value).toISOString(),status});e.target.reset();E('due').readOnly=true;await load()}catch(x){E('error').textContent=x.message}};
-E('itemForm').onsubmit=async e=>{e.preventDefault();try{await call('create_item',{name:E('itemName').value,total:+E('total').value,low_stock:+E('low').value});e.target.reset();E('managerMessage').textContent='Inventory item added.';await load()}catch(x){E('managerMessage').textContent=x.message}};
-window.setStatus=async(id,status)=>{try{await call('set_status',{id,status});await load()}catch(e){alert(e.message)}};window.editItem=async id=>{let i=inventory.find(x=>x.id===id),name=prompt('Item name',i.name),total=prompt('Quantity owned',i.total),low=prompt('Low-stock alert at or below',i.low_stock);if(name===null||total===null||low===null)return;try{await call('update_item',{id,name,total:+total,low_stock:+low});await load()}catch(e){alert(e.message)}};
-window.editBooking=id=>{let b=bookings.find(x=>x.id===id);if(!b)return;E('editId').value=b.id;E('editCustomer').value=b.customer;E('editPhone').value=b.phone||'';E('editQuantity').value=b.quantity;E('editPickup').value=inputTime(b.pickup_at);E('editDue').value=inputTime(b.due_at);E('editStatus').value=b.status;E('editItem').innerHTML=itemOptions(b.item_id,b.other_name);E('editOtherLabel').hidden=!b.other_name;E('editOtherItem').value=b.other_name||'';E('editError').textContent='';E('editModal').hidden=false;E('editCustomer').focus()};
-E('editItem').onchange=()=>E('editOtherLabel').hidden=E('editItem').value!=='other';E('cancelEdit').onclick=()=>E('editModal').hidden=true;E('editModal').onclick=e=>{if(e.target===E('editModal'))E('editModal').hidden=true};document.addEventListener('keydown',e=>{if(e.key==='Escape')E('editModal').hidden=true});E('editBookingForm').onsubmit=async e=>{e.preventDefault();E('editError').textContent='';try{let other=E('editItem').value==='other';await call('update_booking',{id:E('editId').value,customer:E('editCustomer').value,phone:E('editPhone').value,quantity:+E('editQuantity').value,pickup_at:new Date(E('editPickup').value).toISOString(),due_at:new Date(E('editDue').value).toISOString(),item_id:other?null:E('editItem').value,other_name:other?E('editOtherItem').value:null,status:E('editStatus').value});E('editModal').hidden=true;await load()}catch(e){E('editError').textContent=e.message}};
-window.deleteItem=async id=>{if(!confirm('Delete this inventory item? Existing rentals will remain as untracked history.'))return;try{await call('delete_item',{id});await load()}catch(e){alert(e.message)}};document.querySelectorAll('[data-tab]').forEach(x=>x.onclick=()=>{E('board').hidden=x.dataset.tab!=='board';E('manager').hidden=x.dataset.tab!=='manager'});sb.channel('rental-entry-live').on('postgres_changes',{event:'*',schema:'public',table:'rental_inventory'},load).on('postgres_changes',{event:'*',schema:'public',table:'rental_bookings'},load).subscribe();
-</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>J-Town Rental Entry</title>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #f3f3f2;
+      color: #202329;
+      font: 16px system-ui, Arial, sans-serif;
+    }
+
+    header {
+      background: #161719;
+      color: #fff;
+      border-bottom: 5px solid #d71932;
+      padding: 14px 18px;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1.5rem;
+    }
+
+    header p {
+      margin: 4px 0 0;
+      color: #ddd;
+    }
+
+    nav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      background: #292b2f;
+      padding: 10px 18px;
+    }
+
+    button {
+      font: inherit;
+      background: #d71932;
+      color: #fff;
+      border: 0;
+      border-radius: 7px;
+      padding: 10px 13px;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: .52;
+    }
+
+    button.secondary { background: #5c6269; }
+    button.dark { background: #34383d; }
+
+    button.return-button {
+      background: #16733a;
+      font-weight: 800;
+      font-size: 1rem;
+    }
+
+    button.rent-now {
+      background: #a8001a;
+      border: 2px solid #710012;
+      font-size: 1.05rem;
+      font-weight: 800;
+      letter-spacing: .02em;
+      min-height: 52px;
+    }
+
+    main,
+    #locked {
+      max-width: 1140px;
+      margin: 18px auto;
+      padding: 0 16px;
+    }
+
+    main[hidden],
+    #locked[hidden],
+    label[hidden],
+    .modal[hidden] {
+      display: none;
+    }
+
+    section {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 18px;
+      margin: 16px 0;
+    }
+
+    h2 {
+      font-size: 1.25rem;
+      margin: 0 0 13px;
+    }
+
+    h3 {
+      font-size: 1rem;
+      margin: 0 0 10px;
+    }
+
+    p,
+    small {
+      color: #596169;
+    }
+
+    form {
+      display: flex;
+      align-items: end;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      font-size: .9rem;
+      font-weight: 600;
+    }
+
+    input,
+    select {
+      min-width: 150px;
+      border: 1px solid #b9b9b9;
+      border-radius: 6px;
+      padding: 9px;
+      font: inherit;
+    }
+
+    .cols {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .compact-tiles {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+      gap: 8px;
+    }
+
+    .equipment-tile {
+      aspect-ratio: 1 / 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+      overflow: hidden;
+      padding: 8px;
+      border: 1px solid #d1d1d1;
+      border-radius: 8px;
+      background: #fff;
+      color: #202329;
+      text-align: center;
+    }
+
+    button.equipment-tile {
+      font-weight: 700;
+    }
+
+    button.equipment-tile:hover:not(:disabled) {
+      border-color: #d71932;
+      box-shadow: 0 0 0 2px #d7193222;
+    }
+
+    .equipment-tile b {
+      overflow-wrap: anywhere;
+    }
+
+    .equipment-tile small {
+      color: #596169;
+      font-size: .78rem;
+    }
+
+    .tile {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }
+
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+
+    .card button {
+      margin: 5px 5px 0 0;
+      padding: 7px 9px;
+      font-size: .9rem;
+    }
+
+    .low {
+      background: #fff3d6;
+      border-color: #e0a62e;
+    }
+
+    .none {
+      background: #fde1e4;
+      border-color: #d71932;
+    }
+
+    .error {
+      min-height: 1.25em;
+      color: #ac1630;
+    }
+
+    .success {
+      min-height: 1.25em;
+      color: #16733a;
+      font-weight: 700;
+    }
+
+    .overdue {
+      color: #ac1630;
+      font-weight: 800;
+    }
+
+    .due-ok {
+      color: #137333;
+      font-weight: 700;
+    }
+
+    .muted {
+      color: #596169;
+    }
+
+    .session {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-left: auto;
+      color: #fff;
+      font-size: .85rem;
+    }
+
+    .untracked-row {
+      width: 100%;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .link-button {
+      padding: 5px 0;
+      border: 0;
+      background: transparent;
+      color: #4f555b;
+      text-decoration: underline;
+    }
+
+    .link-button:hover {
+      color: #d71932;
+    }
+
+    .modal {
+      position: fixed;
+      z-index: 20;
+      inset: 0;
+      overflow: auto;
+      padding: 20px;
+      background: #0009;
+    }
+
+    .modal-card {
+      max-width: 780px;
+      margin: 5vh auto;
+      padding: 22px;
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: 0 10px 35px #0007;
+    }
+
+    .modal-card form {
+      align-items: end;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      width: 100%;
+      padding-top: 6px;
+    }
+
+    @media (max-width: 700px) {
+      .cols {
+        grid-template-columns: 1fr;
+      }
+
+      .session {
+        justify-content: space-between;
+        width: 100%;
+        margin-left: 0;
+      }
+
+      .compact-tiles {
+        grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <section id="locked" hidden>
+    <section>
+      <h2>Store passkey</h2>
+
+      <form id="unlockForm">
+        <label>
+          Passkey
+          <input id="pass" type="password" autocomplete="current-password" required>
+        </label>
+
+        <button id="unlock">Unlock</button>
+      </form>
+
+      <p id="message" class="error">Checking session…</p>
+    </section>
+  </section>
+
+  <div id="app" hidden>
+    <header>
+      <h1>J-Town Hardware &amp; Rental</h1>
+      <p>Rental Entry · staff only</p>
+    </header>
+
+    <nav>
+      <button data-tab="board">Rental board</button>
+      <button data-tab="manager" class="secondary">Manager screen</button>
+
+      <span class="session">
+        <span id="expires"></span>
+        <button id="lock" type="button" class="secondary">Lock now</button>
+      </span>
+    </nav>
+
+    <main id="board">
+      <section>
+        <h2>Quick-rent equipment</h2>
+        <p>Choose a common rental item, enter the customer, then use the large Rent Now button.</p>
+        <div id="quickRentTiles" class="compact-tiles"></div>
+      </section>
+
+      <section>
+        <h2>Availability</h2>
+        <div id="tiles" class="compact-tiles"></div>
+      </section>
+
+      <div class="cols">
+        <section>
+          <h2>Reserved</h2>
+          <div id="reserved" class="cards"></div>
+        </section>
+
+        <section>
+          <h2>Out now</h2>
+          <div id="out" class="cards"></div>
+        </section>
+      </div>
+
+      <section>
+        <h2>New rental or reservation</h2>
+
+        <form id="bookingForm">
+          <label>
+            Renter name
+            <input id="customer" required>
+          </label>
+
+          <label>
+            Phone number
+            <input id="phone" type="tel">
+          </label>
+
+          <label>
+            Item
+            <select id="item" required></select>
+          </label>
+
+          <label>
+            Quantity
+            <input id="quantity" type="number" min="1" value="1" required>
+          </label>
+
+          <label>
+            Pickup
+            <input id="pickup" type="datetime-local" required>
+          </label>
+
+          <button type="button" id="now" class="dark">
+            Next 15-minute mark
+          </button>
+
+          <label>
+            Rental length
+            <select id="duration">
+              <option value="4">4 hours</option>
+              <option value="24">24 hours</option>
+              <option value="week">Five days</option>
+              <option value="other">Other · enter due time</option>
+            </select>
+          </label>
+
+          <label>
+            Due back
+            <input id="due" type="datetime-local" required readonly>
+          </label>
+
+          <button type="submit" name="status" value="Reserved" class="secondary">
+            Reserve for later
+          </button>
+
+          <button type="submit" name="status" value="Out" class="rent-now">
+            RENT NOW · LEAVING WITH CUSTOMER
+          </button>
+        </form>
+
+        <div class="untracked-row">
+          <button type="button" id="showOther" class="link-button">
+            + Add an untracked item
+          </button>
+
+          <label id="otherLabel" hidden>
+            Untracked item description
+            <input id="otherItem" placeholder="Describe item">
+          </label>
+        </div>
+
+        <p id="error" class="error"></p>
+        <p id="success" class="success"></p>
+        <p>Returns outside store hours are automatically set to the next open day at one hour after opening.</p>
+      </section>
+
+      <section>
+        <h2>Returned and cancelled</h2>
+        <p>History is shown for seven days after it is processed.</p>
+        <div id="history" class="cards"></div>
+      </section>
+    </main>
+
+    <main id="manager" hidden>
+      <section>
+        <h2>Add inventory</h2>
+
+        <form id="itemForm">
+          <label>
+            Item name
+            <input id="itemName" required>
+          </label>
+
+          <label>
+            Quantity owned
+            <input id="total" type="number" min="0" required>
+          </label>
+
+          <label>
+            Low-stock alert at or below
+            <input id="low" type="number" min="0" value="1" required>
+          </label>
+
+          <label>
+            Quick-rent item?
+            <select id="quickRent">
+              <option value="false">No</option>
+              <option value="true">Yes</option>
+            </select>
+          </label>
+
+          <label>
+            Quick-rent order
+            <input id="quickRentOrder" type="number" min="1" placeholder="Optional">
+          </label>
+
+          <button>Add item</button>
+        </form>
+
+        <p id="managerMessage"></p>
+
+        <h2>Edit inventory</h2>
+        <div id="managerItems" class="cards"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="editModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="editTitle">
+    <div class="modal-card">
+      <h2 id="editTitle">Edit rental</h2>
+
+      <form id="editBookingForm">
+        <input id="editId" type="hidden">
+
+        <label>
+          Renter name
+          <input id="editCustomer" required>
+        </label>
+
+        <label>
+          Phone number
+          <input id="editPhone" type="tel">
+        </label>
+
+        <label>
+          Item
+          <select id="editItem" required></select>
+        </label>
+
+        <label id="editOtherLabel" hidden>
+          Untracked item
+          <input id="editOtherItem" placeholder="Describe item">
+        </label>
+
+        <label>
+          Quantity
+          <input id="editQuantity" type="number" min="1" required>
+        </label>
+
+        <label>
+          Pickup
+          <input id="editPickup" type="datetime-local" required>
+        </label>
+
+        <label>
+          Due back
+          <input id="editDue" type="datetime-local" required>
+        </label>
+
+        <label>
+          Status
+          <select id="editStatus">
+            <option value="Reserved">Reserved</option>
+            <option value="Out">Out</option>
+          </select>
+        </label>
+
+        <div class="modal-actions">
+          <button type="submit">Save changes</button>
+          <button type="button" id="cancelEdit" class="secondary">Cancel</button>
+        </div>
+      </form>
+
+      <p id="editError" class="error"></p>
+    </div>
+  </div>
+
+  <div id="inventoryModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="inventoryTitle">
+    <div class="modal-card">
+      <h2 id="inventoryTitle">Edit inventory</h2>
+
+      <form id="editInventoryForm">
+        <input id="inventoryId" type="hidden">
+
+        <label>
+          Item name
+          <input id="inventoryName" required>
+        </label>
+
+        <label>
+          Quantity owned
+          <input id="inventoryTotal" type="number" min="0" required>
+        </label>
+
+        <label>
+          Low-stock alert at or below
+          <input id="inventoryLow" type="number" min="0" required>
+        </label>
+
+        <label>
+          Show in Quick-rent?
+          <select id="inventoryQuickRent">
+            <option value="false">No</option>
+            <option value="true">Yes</option>
+          </select>
+        </label>
+
+        <label>
+          Quick-rent order
+          <input id="inventoryQuickRentOrder" type="number" min="1" placeholder="Optional">
+        </label>
+
+        <div class="modal-actions">
+          <button type="submit">Save item</button>
+          <button type="button" id="cancelInventory" class="secondary">Cancel</button>
+        </div>
+      </form>
+
+      <p id="inventoryError" class="error"></p>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <script>
+    const SUPABASE_URL = 'https://ybwqrcloxvusfvnmzztg.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_qxNMFKHrMNfif5k8INoKiQ_GCcw8OEW';
+    const PASSKEY_URL = SUPABASE_URL + '/functions/v1/verify-passkey';
+    const ACTIONS_URL = SUPABASE_URL + '/functions/v1/rental-actions';
+
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const E = id => document.getElementById(id);
+
+    let inventory = [];
+    let bookings = [];
+
+    const SESSION = 'jtownSession';
+    const EXPIRY = 'jtownSessionExpiry';
+
+    const esc = value =>
+      String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[character]));
+
+    const dateTime = value => new Date(value).toLocaleString();
+
+    const itemName = booking =>
+      inventory.find(item => item.id === booking.item_id)?.name ||
+      booking.other_name ||
+      'Deleted item';
+
+    function inputTime(value) {
+      const date = new Date(value);
+
+      return (
+        date.getFullYear() + '-' +
+        String(date.getMonth() + 1).padStart(2, '0') + '-' +
+        String(date.getDate()).padStart(2, '0') + 'T' +
+        String(date.getHours()).padStart(2, '0') + ':' +
+        String(date.getMinutes()).padStart(2, '0')
+      );
+    }
+
+    function nextQuarter(value = new Date()) {
+      const date = new Date(value);
+
+      date.setSeconds(0, 0);
+      date.setMinutes(Math.floor(date.getMinutes() / 15) * 15 + 15);
+
+      return date;
+    }
+
+    function setDefaultPickup() {
+      if (!E('pickup').value) {
+        E('pickup').value = inputTime(nextQuarter());
+      }
+
+      setDue();
+    }
+
+    function showLocked(message) {
+      E('app').hidden = true;
+      E('locked').hidden = false;
+      E('message').textContent = message;
+      E('pass').focus();
+    }
+
+    function showApp(expiry) {
+      E('locked').hidden = true;
+      E('app').hidden = false;
+      E('expires').textContent =
+        'Unlocked until ' + new Date(expiry).toLocaleString();
+
+      load();
+    }
+
+    async function unlock() {
+      E('message').textContent = 'Checking passkey…';
+      E('unlock').disabled = true;
+
+      try {
+        const response = await fetch(PASSKEY_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_KEY,
+            Authorization: 'Bearer ' + SUPABASE_KEY
+          },
+          body: JSON.stringify({
+            passkey: E('pass').value
+          })
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || !data.token) {
+          throw Error(data.error || 'Could not unlock.');
+        }
+
+        sessionStorage.setItem(SESSION, data.token);
+        sessionStorage.setItem(EXPIRY, data.expires_at);
+
+        E('pass').value = '';
+        showApp(data.expires_at);
+      } catch (error) {
+        E('message').textContent = error.message;
+      } finally {
+        E('unlock').disabled = false;
+      }
+    }
+
+    E('unlockForm').onsubmit = event => {
+      event.preventDefault();
+      unlock();
+    };
+
+    E('lock').onclick = () => {
+      sessionStorage.clear();
+      showLocked('Locked. Enter the store passkey.');
+    };
+
+    const savedToken = sessionStorage.getItem(SESSION);
+    const savedExpiry = sessionStorage.getItem(EXPIRY);
+
+    if (savedToken && savedExpiry && new Date(savedExpiry) > new Date()) {
+      showApp(savedExpiry);
+    } else {
+      showLocked('Enter the store passkey.');
+    }
+
+    async function call(action, payload = {}) {
+      const token = sessionStorage.getItem(SESSION);
+
+      const response = await fetch(ACTIONS_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_KEY,
+          Authorization: 'Bearer ' + SUPABASE_KEY,
+          'X-JTown-Session': token
+        },
+        body: JSON.stringify({
+          action,
+          ...payload
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw Error(data.error || 'Request failed');
+      }
+
+      return data;
+    }
+
+    async function load() {
+      const [inventoryResult, bookingsResult] = await Promise.all([
+        sb.from('rental_inventory').select('*').order('name'),
+        sb.from('rental_bookings').select('*').order('pickup_at')
+      ]);
+
+      if (inventoryResult.error || bookingsResult.error) {
+        E('error').textContent =
+          (inventoryResult.error || bookingsResult.error).message;
+        return;
+      }
+
+      inventory = inventoryResult.data;
+      bookings = bookingsResult.data;
+
+      render();
+    }
+
+    function available(item) {
+      return item.total - bookings
+        .filter(booking =>
+          booking.item_id === item.id &&
+          booking.status === 'Out'
+        )
+        .reduce((sum, booking) => sum + booking.quantity, 0);
+    }
+
+    function itemOptions(selectedId, hasOther) {
+      const options = inventory
+        .map(item => `
+          <option
+            value="${item.id}"
+            ${item.id === selectedId ? 'selected' : ''}
+          >
+            ${esc(item.name)} (${available(item)} available)
+          </option>
+        `)
+        .join('');
+
+      return `
+        <option value="">Choose inventory item</option>
+        ${options}
+        <option value="other" ${hasOther ? 'selected' : ''}>
+          Other / untracked item
+        </option>
+      `;
+    }
+
+    function equipmentTile(item, isQuick) {
+      const count = available(item);
+      const className =
+        count === 0 ? 'none' :
+        count <= item.low_stock ? 'low' :
+        '';
+
+      if (!isQuick) {
+        return `
+          <div class="equipment-tile ${className}">
+            <b>${esc(item.name)}</b>
+            <small>${count} of ${item.total} available</small>
+          </div>
+        `;
+      }
+
+      return `
+        <button
+          type="button"
+          class="equipment-tile ${className}"
+          ${count === 0 ? 'disabled' : ''}
+          onclick="selectQuickRent('${item.id}')"
+        >
+          <b>${esc(item.name)}</b>
+          <small>${count} available</small>
+        </button>
+      `;
+    }
+
+    function rentalCard(booking) {
+      const overdue =
+        booking.status === 'Out' &&
+        new Date(booking.due_at) < new Date();
+
+      const dueClass =
+        overdue ? 'overdue' :
+        booking.status === 'Out' || booking.status === 'Reserved'
+          ? 'due-ok'
+          : '';
+
+      const editButton =
+        booking.status === 'Reserved' || booking.status === 'Out'
+          ? `<button onclick="editBooking('${booking.id}')">Edit</button>`
+          : '';
+
+      const controls =
+        booking.status === 'Reserved'
+          ? `
+            ${editButton}
+            <button onclick="setStatus('${booking.id}','Out')">
+              Check out
+            </button>
+            <button
+              class="secondary"
+              onclick="setStatus('${booking.id}','Cancelled')"
+            >
+              Cancel
+            </button>
+          `
+          : booking.status === 'Out'
+          ? `
+            ${editButton}
+            <button
+              class="return-button"
+              onclick="setStatus('${booking.id}','Returned')"
+            >
+              RETURNED
+            </button>
+          `
+          : '';
+
+      return `
+        <div class="card">
+          <b>${esc(itemName(booking))}</b> × ${booking.quantity}<br>
+          <span class="muted">
+            ${esc(booking.customer)}
+            ${booking.phone ? ' · ' + esc(booking.phone) : ''}
+          </span><br>
+          Pickup: ${dateTime(booking.pickup_at)}<br>
+          <span class="${dueClass}">
+            Due: ${dateTime(booking.due_at)}
+            ${overdue ? ' · OVERDUE' : ''}
+          </span><br>
+          <small>
+            ${booking.status}
+            ${booking.completed_at ? ' · ' + dateTime(booking.completed_at) : ''}
+          </small><br>
+          ${controls}
+        </div>
+      `;
+    }
+
+    function render() {
+      E('item').innerHTML = itemOptions();
+
+      const quickItems = inventory
+        .filter(item => item.quick_rent === true)
+        .sort((a, b) =>
+          (a.quick_rent_order ?? 999999) -
+          (b.quick_rent_order ?? 999999) ||
+          a.name.localeCompare(b.name)
+        );
+
+      E('quickRentTiles').innerHTML =
+        quickItems.map(item => equipmentTile(item, true)).join('') ||
+        '<p class="muted">No Quick-rent items selected. Set them in Manager screen.</p>';
+
+      E('tiles').innerHTML =
+        inventory.map(item => equipmentTile(item, false)).join('') ||
+        '<p class="muted">No inventory yet. Add it on Manager screen.</p>';
+
+      const reserved = bookings.filter(
+        booking => booking.status === 'Reserved'
+      );
+
+      const out = bookings.filter(
+        booking => booking.status === 'Out'
+      );
+
+      const history = bookings.filter(booking =>
+        ['Returned', 'Cancelled'].includes(booking.status) &&
+        booking.completed_at &&
+        Date.now() - new Date(booking.completed_at) < 7 * 86400000
+      );
+
+      E('reserved').innerHTML =
+        reserved.map(rentalCard).join('') ||
+        '<p class="muted">Nothing reserved.</p>';
+
+      E('out').innerHTML =
+        out.map(rentalCard).join('') ||
+        '<p class="muted">Nothing out.</p>';
+
+      E('history').innerHTML =
+        history.map(rentalCard).join('') ||
+        '<p class="muted">No recent returned or cancelled rentals.</p>';
+
+      E('managerItems').innerHTML =
+        inventory.map(item => `
+          <div class="card">
+            <b>${esc(item.name)}</b><br>
+            ${item.total} owned · low alert ${item.low_stock}<br>
+            Quick-rent:
+            ${item.quick_rent ? 'Yes' : 'No'}
+            ${item.quick_rent_order ? ' · order ' + item.quick_rent_order : ''}
+            <br>
+            <button onclick="editItem('${item.id}')">Edit</button>
+            <button
+              class="secondary"
+              onclick="deleteItem('${item.id}')"
+            >
+              Delete
+            </button>
+          </div>
+        `).join('') ||
+        '<p class="muted">No inventory yet.</p>';
+    }
+
+    function setDue() {
+      const pickup = new Date(E('pickup').value);
+      const duration = E('duration').value;
+
+      if (!E('pickup').value) {
+        return;
+      }
+
+      if (duration === 'other') {
+        E('due').readOnly = false;
+        return;
+      }
+
+      E('due').readOnly = true;
+
+      pickup.setHours(
+        pickup.getHours() +
+        (duration === 'week' ? 120 : Number(duration))
+      );
+
+      E('due').value = inputTime(pickup);
+    }
+
+    function clearBookingForm() {
+      E('bookingForm').reset();
+      E('quantity').value = 1;
+      E('duration').value = '4';
+      E('otherLabel').hidden = true;
+      E('otherItem').value = '';
+      E('due').readOnly = true;
+      E('success').textContent = '';
+      setDefaultPickup();
+    }
+
+    window.selectQuickRent = itemId => {
+      E('item').value = itemId;
+      E('quantity').value = 1;
+      E('otherLabel').hidden = true;
+      E('otherItem').value = '';
+
+      setDefaultPickup();
+
+      E('customer').scrollIntoView({
+        behavior: 'smooth',
+        block: 'center'
+      });
+
+      E('customer').focus();
+    };
+
+    E('pickup').onchange = setDue;
+    E('duration').onchange = setDue;
+
+    E('now').onclick = () => {
+      E('pickup').value = inputTime(nextQuarter());
+      setDue();
+    };
+
+    E('showOther').onclick = () => {
+      E('item').value = 'other';
+      E('otherLabel').hidden = false;
+      E('otherItem').focus();
+    };
+
+    E('item').onchange = () => {
+      E('otherLabel').hidden = E('item').value !== 'other';
+    };
+
+    E('bookingForm').onsubmit = async event => {
+      event.preventDefault();
+
+      const status = event.submitter.value;
+      const other = E('item').value === 'other';
+
+      E('error').textContent = '';
+      E('success').textContent = '';
+
+      try {
+        await call('create_booking', {
+          customer: E('customer').value,
+          phone: E('phone').value,
+          item_id: other ? null : E('item').value,
+          other_name: other ? E('otherItem').value : null,
+          quantity: Number(E('quantity').value),
+          pickup_at: new Date(E('pickup').value).toISOString(),
+          due_at: new Date(E('due').value).toISOString(),
+          status
+        });
+
+        const message =
+          status === 'Out'
+            ? 'Rental saved · Display Screen updated.'
+            : 'Reservation saved · Display Screen updated.';
+
+        clearBookingForm();
+        E('success').textContent = message;
+
+        await load();
+      } catch (error) {
+        E('error').textContent = error.message;
+      }
+    };
+
+    E('itemForm').onsubmit = async event => {
+      event.preventDefault();
+
+      try {
+        await call('create_item', {
+          name: E('itemName').value,
+          total: Number(E('total').value),
+          low_stock: Number(E('low').value),
+          quick_rent: E('quickRent').value === 'true',
+          quick_rent_order: E('quickRentOrder').value
+            ? Number(E('quickRentOrder').value)
+            : null
+        });
+
+        event.target.reset();
+        E('low').value = 1;
+        E('quickRent').value = 'false';
+        E('managerMessage').textContent = 'Inventory item added.';
+
+        await load();
+      } catch (error) {
+        E('managerMessage').textContent = error.message;
+      }
+    };
+
+    window.setStatus = async (id, status) => {
+      try {
+        await call('set_status', { id, status });
+        await load();
+      } catch (error) {
+        alert(error.message);
+      }
+    };
+
+    window.editBooking = id => {
+      const booking = bookings.find(item => item.id === id);
+
+      if (!booking) {
+        return;
+      }
+
+      E('editId').value = booking.id;
+      E('editCustomer').value = booking.customer;
+      E('editPhone').value = booking.phone || '';
+      E('editQuantity').value = booking.quantity;
+      E('editPickup').value = inputTime(booking.pickup_at);
+      E('editDue').value = inputTime(booking.due_at);
+      E('editStatus').value = booking.status;
+
+      E('editItem').innerHTML = itemOptions(
+        booking.item_id,
+        booking.other_name
+      );
+
+      E('editOtherLabel').hidden = !booking.other_name;
+      E('editOtherItem').value = booking.other_name || '';
+      E('editError').textContent = '';
+      E('editModal').hidden = false;
+
+      E('editCustomer').focus();
+    };
+
+    E('editItem').onchange = () => {
+      E('editOtherLabel').hidden = E('editItem').value !== 'other';
+    };
+
+    E('cancelEdit').onclick = () => {
+      E('editModal').hidden = true;
+    };
+
+    E('editModal').onclick = event => {
+      if (event.target === E('editModal')) {
+        E('editModal').hidden = true;
+      }
+    };
+
+    E('editBookingForm').onsubmit = async event => {
+      event.preventDefault();
+
+      const other = E('editItem').value === 'other';
+
+      E('editError').textContent = '';
+
+      try {
+        await call('update_booking', {
+          id: E('editId').value,
+          customer: E('editCustomer').value,
+          phone: E('editPhone').value,
+          quantity: Number(E('editQuantity').value),
+          pickup_at: new Date(E('editPickup').value).toISOString(),
+          due_at: new Date(E('editDue').value).toISOString(),
+          item_id: other ? null : E('editItem').value,
+          other_name: other ? E('editOtherItem').value : null,
+          status: E('editStatus').value
+        });
+
+        E('editModal').hidden = true;
+        await load();
+      } catch (error) {
+        E('editError').textContent = error.message;
+      }
+    };
+
+    window.editItem = id => {
+      const item = inventory.find(entry => entry.id === id);
+
+      if (!item) {
+        return;
+      }
+
+      E('inventoryId').value = item.id;
+      E('inventoryName').value = item.name;
+      E('inventoryTotal').value = item.total;
+      E('inventoryLow').value = item.low_stock;
+      E('inventoryQuickRent').value =
+        item.quick_rent ? 'true' : 'false';
+      E('inventoryQuickRentOrder').value =
+        item.quick_rent_order ?? '';
+      E('inventoryError').textContent = '';
+      E('inventoryModal').hidden = false;
+
+      E('inventoryName').focus();
+    };
+
+    E('cancelInventory').onclick = () => {
+      E('inventoryModal').hidden = true;
+    };
+
+    E('inventoryModal').onclick = event => {
+      if (event.target === E('inventoryModal')) {
+        E('inventoryModal').hidden = true;
+      }
+    };
+
+    E('editInventoryForm').onsubmit = async event => {
+      event.preventDefault();
+
+      E('inventoryError').textContent = '';
+
+      try {
+        await call('update_item', {
+          id: E('inventoryId').value,
+          name: E('inventoryName').value,
+          total: Number(E('inventoryTotal').value),
+          low_stock: Number(E('inventoryLow').value),
+          quick_rent: E('inventoryQuickRent').value === 'true',
+          quick_rent_order: E('inventoryQuickRentOrder').value
+            ? Number(E('inventoryQuickRentOrder').value)
+            : null
+        });
+
+        E('inventoryModal').hidden = true;
+        await load();
+      } catch (error) {
+        E('inventoryError').textContent = error.message;
+      }
+    };
+
+    window.deleteItem = async id => {
+      if (!confirm(
+        'Delete this inventory item? Existing rentals will remain as untracked history.'
+      )) {
+        return;
+      }
+
+      try {
+        await call('delete_item', { id });
+        await load();
+      } catch (error) {
+        alert(error.message);
+      }
+    };
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        E('editModal').hidden = true;
+        E('inventoryModal').hidden = true;
+      }
+    });
+
+    document.querySelectorAll('[data-tab]').forEach(button => {
+      button.onclick = () => {
+        E('board').hidden = button.dataset.tab !== 'board';
+        E('manager').hidden = button.dataset.tab !== 'manager';
+      };
+    });
+
+    sb.channel('rental-entry-live')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'rental_inventory' },
+        load
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'rental_bookings' },
+        load
+      )
+      .subscribe();
+
+    setDefaultPickup();
+  </script>
+</body>
+</html>
