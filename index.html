@@ -446,7 +446,7 @@
 
         <p id="error" class="error"></p>
         <p id="success" class="success"></p>
-        <p>Returns outside store hours are automatically set to the next open day at one hour after opening.</p>
+        <p>   Due times outside store hours automatically move to the next opening time:   8:00 AM Monday–Friday, 8:30 AM Saturday, or 12:30 PM Sunday. </p>
       </section>
 
       <section>
@@ -968,29 +968,117 @@
         `).join('') ||
         '<p class="muted">No inventory yet.</p>';
     }
+function storeHoursForDate(date) {
+  const day = date.getDay();
 
-    function setDue() {
-      const pickup = new Date(E('pickup').value);
-      const duration = E('duration').value;
+  // Sunday: noon–4:00 PM
+  if (day === 0) {
+    return {
+      openHour: 12,
+      openMinute: 0,
+      closeHour: 16,
+      closeMinute: 0
+    };
+  }
 
-      if (!E('pickup').value) {
-        return;
-      }
+  // Saturday: 8:00 AM–5:00 PM
+  if (day === 6) {
+    return {
+      openHour: 8,
+      openMinute: 0,
+      closeHour: 17,
+      closeMinute: 0
+    };
+  }
 
-      if (duration === 'other') {
-        E('due').readOnly = false;
-        return;
-      }
+  // Monday–Friday: 7:30 AM–6:00 PM
+  return {
+    openHour: 7,
+    openMinute: 30,
+    closeHour: 18,
+    closeMinute: 0
+  };
+}
 
-      E('due').readOnly = true;
+function isWithinStoreHours(date) {
+  const hours = storeHoursForDate(date);
 
-      pickup.setHours(
-        pickup.getHours() +
-        (duration === 'week' ? 120 : Number(duration))
-      );
+  const currentMinutes =
+    date.getHours() * 60 + date.getMinutes();
 
-      E('due').value = inputTime(pickup);
+  const openingMinutes =
+    hours.openHour * 60 + hours.openMinute;
+
+  const closingMinutes =
+    hours.closeHour * 60 + hours.closeMinute;
+
+  return (
+    currentMinutes >= openingMinutes &&
+    currentMinutes <= closingMinutes
+  );
+}
+
+function nextOpeningPlusThirtyMinutes(date) {
+  const next = new Date(date);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const hours = storeHoursForDate(next);
+
+    const opening = new Date(next);
+    opening.setHours(
+      hours.openHour,
+      hours.openMinute,
+      0,
+      0
+    );
+
+    /*
+      Before opening: use today’s opening.
+      After closing: move forward one calendar day.
+    */
+    if (attempt > 0 || next < opening) {
+      opening.setMinutes(opening.getMinutes() + 30);
+      return opening;
     }
+
+    next.setDate(next.getDate() + 1);
+    next.setHours(0, 0, 0, 0);
+  }
+
+  return date;
+}
+  function setDue() {
+  if (!E('pickup').value) {
+    return;
+  }
+
+  const pickup = new Date(E('pickup').value);
+  const duration = E('duration').value;
+
+  /*
+    “Other” lets staff manually enter a due time.
+    The Edge Function will still correct it on Save if it is outside hours.
+  */
+  if (duration === 'other') {
+    E('due').readOnly = false;
+    return;
+  }
+
+  E('due').readOnly = true;
+
+  const calculatedDue = new Date(pickup);
+
+  calculatedDue.setHours(
+    calculatedDue.getHours() +
+    (duration === 'week' ? 120 : Number(duration))
+  );
+
+  const finalDue = isWithinStoreHours(calculatedDue)
+    ? calculatedDue
+    : nextOpeningPlusThirtyMinutes(calculatedDue);
+
+  E('due').value = inputTime(finalDue);
+}
 
     function clearBookingForm() {
       E('bookingForm').reset();
