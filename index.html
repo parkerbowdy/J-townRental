@@ -968,6 +968,75 @@
         `).join('') ||
         '<p class="muted">No inventory yet.</p>';
     }
+    function storeHoursForDate(date) {
+  const day = date.getDay();
+
+  // Sunday: noon to 4:00 PM
+  if (day === 0) {
+    return {
+      openHour: 12,
+      openMinute: 0,
+      closeHour: 16,
+      closeMinute: 0
+    };
+  }
+
+  // Saturday: 8:00 AM to 5:00 PM
+  if (day === 6) {
+    return {
+      openHour: 8,
+      openMinute: 0,
+      closeHour: 17,
+      closeMinute: 0
+    };
+  }
+
+  // Monday through Friday: 7:30 AM to 6:00 PM
+  return {
+    openHour: 7,
+    openMinute: 30,
+    closeHour: 18,
+    closeMinute: 0
+  };
+}
+
+/*
+  Keeps the due time on the same calendar day wherever possible:
+  - Before opening → opening plus 30 minutes
+  - After closing → closing time
+  - Within hours → unchanged
+*/
+function clampDueToStoreHours(date) {
+  const result = new Date(date);
+  const hours = storeHoursForDate(result);
+
+  const minutes =
+    result.getHours() * 60 + result.getMinutes();
+
+  const openMinutes =
+    hours.openHour * 60 + hours.openMinute;
+
+  const closeMinutes =
+    hours.closeHour * 60 + hours.closeMinute;
+
+  if (minutes < openMinutes) {
+    result.setHours(
+      hours.openHour,
+      hours.openMinute + 30,
+      0,
+      0
+    );
+  } else if (minutes > closeMinutes) {
+    result.setHours(
+      hours.closeHour,
+      hours.closeMinute,
+      0,
+      0
+    );
+  }
+
+  return result;
+}
 function storeHoursForDate(date) {
   const day = date.getDay();
 
@@ -1047,7 +1116,7 @@ function nextOpeningPlusThirtyMinutes(date) {
 
   return date;
 }
-  function setDue() {
+function setDue() {
   if (!E('pickup').value) {
     return;
   }
@@ -1055,10 +1124,6 @@ function nextOpeningPlusThirtyMinutes(date) {
   const pickup = new Date(E('pickup').value);
   const duration = E('duration').value;
 
-  /*
-    “Other” lets staff manually enter a due time.
-    The Edge Function will still correct it on Save if it is outside hours.
-  */
   if (duration === 'other') {
     E('due').readOnly = false;
     return;
@@ -1073,11 +1138,9 @@ function nextOpeningPlusThirtyMinutes(date) {
     (duration === 'week' ? 120 : Number(duration))
   );
 
-  const finalDue = isWithinStoreHours(calculatedDue)
-    ? calculatedDue
-    : nextOpeningPlusThirtyMinutes(calculatedDue);
-
-  E('due').value = inputTime(finalDue);
+  E('due').value = inputTime(
+    clampDueToStoreHours(calculatedDue)
+  );
 }
 
     function clearBookingForm() {
