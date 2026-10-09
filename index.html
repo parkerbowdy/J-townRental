@@ -607,7 +607,56 @@
       <p id="inventoryError" class="error"></p>
     </div>
   </div>
+<div
+  id="overdueReturnModal"
+  class="modal"
+  hidden
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="overdueReturnTitle"
+  aria-describedby="overdueReturnMessage"
+>
+  <div
+    class="modal-card"
+    style="max-width:560px;border:3px solid #d71932;background:#fff0f2;"
+  >
+    <h2 id="overdueReturnTitle" style="color:#ac1630;">
+      Overdue item — check charges
+    </h2>
 
+    <p
+      id="overdueReturnMessage"
+      style="color:#ac1630;font-weight:800;line-height:1.5;"
+    >
+      ITEM OVERDUE, CHECK DUE BACK TIME AND CHARGE APPROPRIATE PRICE DIFFRENCE
+    </p>
+
+    <div id="overdueReturnDetails" style="line-height:1.6;"></div>
+
+    <p>
+      Check the due-back time and any additional charge before marking
+      this item returned.
+    </p>
+
+    <div class="modal-actions">
+      <button
+        type="button"
+        id="cancelOverdueReturn"
+        class="secondary"
+      >
+        Cancel
+      </button>
+
+      <button
+        type="button"
+        id="confirmOverdueReturn"
+        class="return-button"
+      >
+        Acknowledge &amp; Return
+      </button>
+    </div>
+  </div>
+</div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <script>
@@ -1785,27 +1834,143 @@ function setDue() {
     Show the warning BEFORE sending the Returned request.
     Cancel leaves the rental marked Out.
   */
-  const originalSetStatus = window.setStatus;
+ const originalSetStatus = window.setStatus;
 
-  window.setStatus = async function(id, status) {
-    const booking = bookings.find(row => row.id === id);
+const overdueModal = getElement('overdueReturnModal');
+const cancelReturnButton = getElement('cancelOverdueReturn');
+const confirmReturnButton = getElement('confirmOverdueReturn');
 
-    if (
-      status === 'Returned' &&
-      booking &&
-      isOverdue(booking)
-    ) {
-      const acknowledged = window.confirm(
-        'ITEM OVERDUE, CHECK DUE BACK TIME AND CHARGE APPROPRIATE PRICE DIFFRENCE'
-      );
+let pendingReturnId = null;
+let returnInProgress = false;
+let returnTrigger = null;
 
-      if (!acknowledged) {
-        return;
-      }
+function closeOverdueReturn() {
+  if (returnInProgress) {
+    return;
+  }
+
+  overdueModal.hidden = true;
+  pendingReturnId = null;
+
+  if (returnTrigger?.isConnected) {
+    returnTrigger.focus();
+  }
+
+  returnTrigger = null;
+}
+
+function openOverdueReturn(booking) {
+  pendingReturnId = booking.id;
+  returnTrigger = document.activeElement;
+
+  getElement('overdueReturnDetails').innerHTML = `
+    <strong>${safeText(itemName(booking))}</strong>
+    × ${Number(booking.quantity)}<br>
+
+    ${safeText(booking.customer)}<br>
+    ${safeText(booking.phone || 'No phone number')}<br>
+
+    Pickup: ${bookingTime(booking.pickup_at)}<br>
+
+    <span class="overdue">
+      Due back: ${bookingTime(booking.due_at)}
+    </span>
+  `;
+
+  overdueModal.hidden = false;
+  cancelReturnButton.focus();
+}
+
+window.setStatus = async function(id, status) {
+  const booking = bookings.find(row => row.id === id);
+
+  if (
+    status === 'Returned' &&
+    booking &&
+    isOverdue(booking)
+  ) {
+    if (!returnInProgress) {
+      openOverdueReturn(booking);
     }
 
-    return originalSetStatus(id, status);
-  };
+    return;
+  }
+
+  return originalSetStatus(id, status);
+};
+
+cancelReturnButton.onclick = closeOverdueReturn;
+
+confirmReturnButton.onclick = async () => {
+  if (!pendingReturnId || returnInProgress) {
+    return;
+  }
+
+  const id = pendingReturnId;
+
+  returnInProgress = true;
+  cancelReturnButton.disabled = true;
+  confirmReturnButton.disabled = true;
+  confirmReturnButton.textContent = 'Returning…';
+
+  try {
+    await originalSetStatus(id, 'Returned');
+  } finally {
+    returnInProgress = false;
+    cancelReturnButton.disabled = false;
+    confirmReturnButton.disabled = false;
+    confirmReturnButton.textContent = 'Acknowledge & Return';
+
+    closeOverdueReturn();
+  }
+};
+
+overdueModal.addEventListener('click', event => {
+  if (event.target === overdueModal) {
+    closeOverdueReturn();
+  }
+});
+
+document.addEventListener('keydown', event => {
+  if (overdueModal.hidden) {
+    return;
+  }
+
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeOverdueReturn();
+    return;
+  }
+
+  if (event.key === 'Tab') {
+    const buttons = [
+      cancelReturnButton,
+      confirmReturnButton
+    ].filter(button => !button.disabled);
+
+    if (!buttons.length) {
+      event.preventDefault();
+      return;
+    }
+
+    const first = buttons[0];
+    const last = buttons[buttons.length - 1];
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (
+      !event.shiftKey &&
+      document.activeElement === last
+    ) {
+      event.preventDefault();
+      first.focus();
+    } else if (!buttons.includes(document.activeElement)) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+});
 
   /*
     Add the Calendar tab to the Staff Screen.
