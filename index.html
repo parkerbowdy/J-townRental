@@ -982,12 +982,21 @@
         booking => booking.status === 'Out'
       );
 
-      const history = bookings.filter(booking =>
-        ['Returned', 'Cancelled'].includes(booking.status) &&
-        booking.completed_at &&
-        Date.now() - new Date(booking.completed_at) < 7 * 86400000
-      );
+    const history = bookings
+  .filter(booking =>
+    ['Returned', 'Cancelled'].includes(booking.status)
+  )
+  .sort((a, b) => {
+    const aTime = a.completed_at
+      ? new Date(a.completed_at).getTime()
+      : 0;
 
+    const bTime = b.completed_at
+      ? new Date(b.completed_at).getTime()
+      : 0;
+
+    return (bTime || 0) - (aTime || 0);
+  });
       E('reserved').innerHTML =
         reserved.map(rentalCard).join('') ||
         '<p class="muted">Nothing reserved.</p>';
