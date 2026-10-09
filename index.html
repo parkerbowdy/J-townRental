@@ -827,10 +827,27 @@
         return;
       }
 
-      inventory = inventoryResult.data;
-      bookings = bookingsResult.data;
+    inventory = inventoryResult.data ?? [];
+bookings = bookingsResult.data ?? [];
 
-      render();
+render();
+
+const completedBookings = bookings.filter(booking =>
+  ['returned', 'cancelled'].includes(
+    String(booking.status || '').trim().toLowerCase()
+  )
+);
+
+E('history').innerHTML =
+  completedBookings
+    .map(rentalCard)
+    .join('') ||
+  '<p class="muted">No completed bookings loaded.</p>';
+
+E('success').textContent =
+  'History check: ' +
+  completedBookings.length +
+  ' returned/cancelled bookings loaded.';
     }
 
     function available(item) {
