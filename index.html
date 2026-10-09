@@ -830,11 +830,26 @@ async function load() {
       throw inventoryResult.error;
     }
 
+    console.log('staff_bookings response:', bookingResult);
+
+    if (!Array.isArray(bookingResult.bookings)) {
+      throw Error(
+        'The staff_bookings response did not include a bookings list. Check the deployed rental-actions function.'
+      );
+    }
+
     inventory = inventoryResult.data ?? [];
-    bookings = bookingResult.bookings ?? [];
+    bookings = bookingResult.bookings;
 
     render();
+
+    E('error').textContent =
+      bookings.length === 0
+        ? 'The server returned 0 bookings.'
+        : '';
   } catch (error) {
+    console.error('Staff rental load failed:', error);
+
     E('error').textContent =
       error.message || 'Unable to load rentals.';
   }
