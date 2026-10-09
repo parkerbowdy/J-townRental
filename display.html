@@ -1,3 +1,638 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>J-Town Rental Display</title><style>*{box-sizing:border-box}body{margin:0;background:#f3f3f2;color:#202329;font:18px system-ui,Arial}header{background:#161719;color:#fff;border-bottom:6px solid #d71932;padding:20px}header h1{margin:0;font-size:2rem}main{max-width:1400px;margin:auto;padding:20px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}section{background:#fff;border:1px solid #ddd;border-radius:10px;padding:18px}h2{margin:0 0 12px}.low-box{max-width:100%;margin-bottom:16px}.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px}.tile{aspect-ratio:1/1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;border:1px solid #ddd;border-radius:8px;padding:9px;background:#fff;overflow:hidden}.tile b{overflow-wrap:anywhere}.card{border:1px solid #ddd;border-radius:8px;padding:12px;background:#fff;margin:9px 0}.low{background:#fff3d6;border-color:#e0a62e}.none{background:#fde1e4;border-color:#d71932}.overdue{color:#ac1630;font-weight:700}.due-ok{color:#137333;font-weight:700}.muted{color:#596169}#status{color:#ddd;font-size:.9rem}@media(max-width:520px){.tiles{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}}</style></head><body><header><h1>J-Town Hardware & Rental</h1><div>Staff Display Screen · Live rental status</div><div id="status">Connecting…</div></header><main><section class="low-box"><h2>Low and no stock</h2><div id="tiles" class="tiles"></div><p class="muted">Only equipment at or below its low-stock setting appears here.</p></section><div class="grid"><section><h2>Reserved</h2><div id="reserved"></div></section><section><h2>Out now</h2><div id="out"></div></section></div></main><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script>
 const SUPABASE_URL='https://ybwqrcloxvusfvnmzztg.supabase.co',SUPABASE_KEY='sb_publishable_qxNMFKHrMNfif5k8INoKiQ_GCcw8OEW';const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY),E=id=>document.getElementById(id);let items=[],bookings=[];const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const dt=x=>new Date(x).toLocaleString();const itemName=b=>items.find(i=>i.id===b.item_id)?.name||b.other_name||'Item';function available(i){return i.total-bookings.filter(b=>b.item_id===i.id&&b.status==='Out').reduce((n,b)=>n+b.quantity,0)}function card(b){const overdue=b.status==='Out'&&new Date(b.due_at)<new Date(),dueClass=overdue?'overdue':'due-ok';return `<div class="card"><b>${esc(itemName(b))}</b> × ${b.quantity}<br><span class="muted">Pickup: ${dt(b.pickup_at)}</span><br><span class="${dueClass}">Due: ${dt(b.due_at)}${overdue?' · OVERDUE':''}</span></div>`}async function load(){const[a,b]=await Promise.all([sb.from('rental_inventory').select('*').order('name'),sb.from('rental_bookings').select('*').in('status',['Reserved','Out']).order('pickup_at')]);if(a.error||b.error){console.error(a.error||b.error);E('status').textContent='Unable to load shared rentals.';return}items=a.data;bookings=b.data;const low=items.filter(i=>available(i)<=i.low_stock);E('tiles').innerHTML=low.map(i=>{const n=available(i),c=n===0?'none':'low';return `<div class="tile ${c}"><b>${esc(i.name)}</b><span>${n} / ${i.total}<br>available</span></div>`}).join('')||'<p class="muted">All equipment is above its low-stock level.</p>';E('reserved').innerHTML=bookings.filter(b=>b.status==='Reserved').map(card).join('')||'<p class="muted">Nothing reserved.</p>';E('out').innerHTML=bookings.filter(b=>b.status==='Out').map(card).join('')||'<p class="muted">Nothing out.</p>';E('status').textContent='Live · last refreshed '+new Date().toLocaleTimeString()}load();sb.channel('rental-display-live').on('postgres_changes',{event:'*',schema:'public',table:'rental_inventory'},load).on('postgres_changes',{event:'*',schema:'public',table:'rental_bookings'},load).subscribe((s,e)=>{console.log('Realtime status:',s,e);if(s==='SUBSCRIBED')E('status').textContent='Live display connected';else if(s==='CHANNEL_ERROR')E('status').textContent='Live connection error — refreshing every minute.';else if(s==='TIMED_OUT')E('status').textContent='Live connection timed out — refreshing every minute.';else if(s==='CLOSED')E('status').textContent='Live connection closed — refreshing every minute.'});setInterval(load,60000);
-</script></body></html>
+</script>
+<script>
+(() => {
+  const isStaffPage = !!document.getElementById('bookingForm');
+  const STORE_ZONE = 'America/New_York';
+
+  const getElement = id => document.getElementById(id);
+
+  const safeText = value =>
+    String(value ?? '').replace(/[&<>"']/g, character => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[character]));
+
+  const bookingTime = value =>
+    new Date(value).toLocaleString('en-US', {
+      timeZone: STORE_ZONE,
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+
+  function dayKey(value) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: STORE_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(new Date(value));
+
+    const get = type =>
+      parts.find(part => part.type === type)?.value;
+
+    return `${get('year')}-${get('month')}-${get('day')}`;
+  }
+
+  function overlapsDay(booking, key) {
+    const pickup = new Date(booking.pickup_at).getTime();
+    const due = new Date(booking.due_at).getTime();
+
+    if (
+      !Number.isFinite(pickup) ||
+      !Number.isFinite(due) ||
+      due <= pickup
+    ) {
+      return false;
+    }
+
+    // A return exactly at midnight does not occupy the following day.
+    return (
+      dayKey(pickup) <= key &&
+      dayKey(due - 1) >= key
+    );
+  }
+
+  function isOverdue(booking) {
+    return (
+      booking.status === 'Out' &&
+      new Date(booking.due_at).getTime() < Date.now()
+    );
+  }
+
+  function dueOrder(a, b) {
+    return (
+      new Date(a.due_at).getTime() -
+      new Date(b.due_at).getTime()
+    );
+  }
+
+  /*
+    Today's availability:
+    - All currently Out equipment remains unavailable until returned.
+    - Reserved equipment counts only if its period overlaps today.
+    - Returned and Cancelled equipment does not count.
+  */
+  available = function(item) {
+    const today = dayKey(new Date());
+
+    const committed = bookings
+      .filter(booking =>
+        booking.item_id === item.id &&
+        (
+          booking.status === 'Out' ||
+          (
+            booking.status === 'Reserved' &&
+            overlapsDay(booking, today)
+          )
+        )
+      )
+      .reduce(
+        (sum, booking) => sum + Number(booking.quantity),
+        0
+      );
+
+    return Math.max(0, Number(item.total) - committed);
+  };
+
+  const extraStyle = document.createElement('style');
+
+  extraStyle.textContent = `
+    .card.overdue-card,
+    .display-rental.overdue-card {
+      background: #fde8eb;
+      border: 2px solid #d71932;
+    }
+
+    .display-rentals {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, 200px);
+      justify-content: start;
+      gap: 10px;
+    }
+
+    .display-rental {
+      width: 200px;
+      height: 200px;
+      overflow: auto;
+      border: 1px solid #d1d1d1;
+      border-radius: 9px;
+      background: #fff;
+      padding: 11px;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .display-rental .rental-item {
+      font-size: 15px;
+      font-weight: 800;
+      margin-bottom: 6px;
+      overflow-wrap: anywhere;
+    }
+
+    .display-rental .rental-customer {
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+
+    .display-rental .rental-phone {
+      color: #596169;
+      margin-bottom: 8px;
+      overflow-wrap: anywhere;
+    }
+
+    .display-rental .rental-time {
+      margin-top: 5px;
+    }
+
+    .display-rental .rental-status {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .04em;
+      margin-bottom: 5px;
+      color: #596169;
+    }
+
+    .calendar-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 15px;
+    }
+
+    .calendar-controls h2 {
+      margin: 0;
+      flex: 1;
+    }
+
+    .calendar-scroll {
+      overflow-x: auto;
+    }
+
+    .rental-calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(110px, 1fr));
+      gap: 6px;
+      min-width: 800px;
+    }
+
+    .calendar-heading {
+      text-align: center;
+      font-weight: 700;
+      padding: 8px;
+    }
+
+    .calendar-day {
+      min-height: 125px;
+      padding: 7px;
+      border: 1px solid #ddd;
+      border-radius: 7px;
+      background: #fff;
+    }
+
+    .calendar-day.today {
+      border: 2px solid #16733a;
+    }
+
+    .calendar-day.blank {
+      background: #f3f3f2;
+    }
+
+    .calendar-date {
+      display: block;
+      padding: 2px 5px;
+      margin-bottom: 5px;
+      color: #202329;
+      background: transparent;
+      font-weight: 800;
+    }
+
+    .calendar-booking {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 6px;
+      margin: 4px 0;
+      border-radius: 5px;
+      background: #fff3d6;
+      color: #202329;
+      font-size: 11px;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+    }
+
+    .calendar-booking.checked-out {
+      background: #e7f0ff;
+    }
+
+    .calendar-booking.late {
+      background: #fde1e4;
+      color: #ac1630;
+      border: 1px solid #d71932;
+    }
+
+    .calendar-legend {
+      margin: 8px 0 14px;
+      color: #596169;
+    }
+
+    .calendar-detail {
+      border: 1px solid #ddd;
+      border-radius: 7px;
+      padding: 12px;
+      margin-top: 9px;
+      background: #fff;
+      overflow-wrap: anywhere;
+    }
+
+    .calendar-detail.late {
+      background: #fde8eb;
+      border-color: #d71932;
+    }
+
+    @media (max-width: 520px) {
+      .display-rentals {
+        grid-template-columns: repeat(auto-fill, 180px);
+      }
+
+      .display-rental {
+        width: 180px;
+        height: 180px;
+        font-size: 12px;
+      }
+    }
+  `;
+
+  document.head.appendChild(extraStyle);
+
+  if (!isStaffPage) {
+    /*
+      Display Screen only: smaller square cards.
+      The top stock tiles and two-column layout remain unchanged.
+    */
+    card = function(booking) {
+      const late = isOverdue(booking);
+
+      return `
+        <div class="display-rental ${late ? 'overdue-card' : ''}">
+          <div class="rental-status">
+            ${booking.status === 'Out' ? 'OUT' : 'RESERVED'}
+          </div>
+
+          <div class="rental-item">
+            ${safeText(itemName(booking))} × ${Number(booking.quantity)}
+          </div>
+
+          <div class="rental-customer">
+            ${safeText(booking.customer)}
+          </div>
+
+          <div class="rental-phone">
+            ${safeText(booking.phone || 'No phone number')}
+          </div>
+
+          <div class="rental-time">
+            Pickup: ${bookingTime(booking.pickup_at)}
+          </div>
+
+          <div class="rental-time ${late ? 'overdue' : 'due-ok'}">
+            Due back: ${bookingTime(booking.due_at)}
+            ${late ? '<br>OVERDUE' : ''}
+          </div>
+        </div>
+      `;
+    };
+
+    getElement('reserved').classList.add('display-rentals');
+    getElement('out').classList.add('display-rentals');
+
+    const originalDisplayLoad = load;
+
+    load = async function() {
+      await originalDisplayLoad();
+
+      getElement('reserved').innerHTML = bookings
+        .filter(booking => booking.status === 'Reserved')
+        .sort(dueOrder)
+        .map(card)
+        .join('') || '<p class="muted">Nothing reserved.</p>';
+
+      getElement('out').innerHTML = bookings
+        .filter(booking => booking.status === 'Out')
+        .sort(dueOrder)
+        .map(card)
+        .join('') || '<p class="muted">Nothing out.</p>';
+    };
+
+    // Existing subscriptions continue running. This also applies sorting.
+    setInterval(() => load(), 60000);
+    load();
+    return;
+  }
+
+  /*
+    Staff Screen: keep current card dimensions and controls.
+    Add only the overdue background.
+  */
+  const originalRentalCard = rentalCard;
+
+  rentalCard = function(booking) {
+    const html = originalRentalCard(booking);
+
+    return isOverdue(booking)
+      ? html.replace(
+          'class="card"',
+          'class="card overdue-card"'
+        )
+      : html;
+  };
+
+  /*
+    Show the warning BEFORE sending the Returned request.
+    Cancel leaves the rental marked Out.
+  */
+  const originalSetStatus = window.setStatus;
+
+  window.setStatus = async function(id, status) {
+    const booking = bookings.find(row => row.id === id);
+
+    if (
+      status === 'Returned' &&
+      booking &&
+      isOverdue(booking)
+    ) {
+      const acknowledged = window.confirm(
+        'ITEM OVERDUE, CHECK DUE BACK TIME AND CHARGE APPROPRIATE PRICE DIFFRENCE'
+      );
+
+      if (!acknowledged) {
+        return;
+      }
+    }
+
+    return originalSetStatus(id, status);
+  };
+
+  /*
+    Add the Calendar tab to the Staff Screen.
+  */
+  const calendarButton = document.createElement('button');
+  calendarButton.type = 'button';
+  calendarButton.className = 'secondary';
+  calendarButton.dataset.tab = 'calendar';
+  calendarButton.textContent = 'Calendar';
+
+  const navigation = document.querySelector('#app nav');
+
+  navigation.insertBefore(
+    calendarButton,
+    navigation.querySelector('.session')
+  );
+
+  const calendarMain = document.createElement('main');
+  calendarMain.id = 'calendar';
+  calendarMain.hidden = true;
+
+  calendarMain.innerHTML = `
+    <section>
+      <div class="calendar-controls">
+        <button type="button" id="calendarPrevious"
+          class="secondary">Previous</button>
+
+        <h2 id="calendarMonth"></h2>
+
+        <button type="button" id="calendarToday"
+          class="secondary">Today</button>
+
+        <button type="button" id="calendarNext"
+          class="secondary">Next</button>
+      </div>
+
+      <p class="calendar-legend">
+        Yellow: Reserved · Blue: Out · Red: Overdue
+      </p>
+
+      <div class="calendar-scroll">
+        <div id="calendarGrid" class="rental-calendar-grid"></div>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="calendarDetailsTitle">Day details</h2>
+      <div id="calendarDetails"></div>
+    </section>
+  `;
+
+  getElement('app').appendChild(calendarMain);
+
+  const currentKey = dayKey(new Date());
+  let selectedKey = currentKey;
+
+  let calendarMonth = new Date(
+    `${currentKey.slice(0, 7)}-01T12:00:00Z`
+  );
+
+  function bookingsForDay(key) {
+    const today = dayKey(new Date());
+
+    return bookings
+      .filter(booking => {
+        if (!['Reserved', 'Out'].includes(booking.status)) {
+          return false;
+        }
+
+        if (overlapsDay(booking, key)) {
+          return true;
+        }
+
+        // Show overdue items still Out on today's calendar too.
+        return (
+          key === today &&
+          isOverdue(booking) &&
+          dayKey(booking.pickup_at) <= today
+        );
+      })
+      .sort(dueOrder);
+  }
+
+  function showDayDetails(key) {
+    selectedKey = key;
+
+    const label = new Date(`${key}T12:00:00Z`)
+      .toLocaleDateString('en-US', {
+        timeZone: 'UTC',
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric'
+      });
+
+    getElement('calendarDetailsTitle').textContent = label;
+
+    getElement('calendarDetails').innerHTML =
+      bookingsForDay(key).map(booking => `
+        <div class="calendar-detail ${isOverdue(booking) ? 'late' : ''}">
+          <strong>
+            ${safeText(itemName(booking))} × ${Number(booking.quantity)}
+          </strong><br>
+
+          ${safeText(booking.customer)}<br>
+          ${safeText(booking.phone || 'No phone number')}<br>
+
+          Status: ${safeText(booking.status)}<br>
+          Pickup: ${bookingTime(booking.pickup_at)}<br>
+
+          <span class="${isOverdue(booking) ? 'overdue' : 'due-ok'}">
+            Due back: ${bookingTime(booking.due_at)}
+            ${isOverdue(booking) ? ' · OVERDUE' : ''}
+          </span>
+        </div>
+      `).join('') ||
+      '<p class="muted">No active reservations or rentals for this day.</p>';
+  }
+
+  function renderCalendar() {
+    const year = calendarMonth.getUTCFullYear();
+    const month = calendarMonth.getUTCMonth();
+
+    getElement('calendarMonth').textContent =
+      calendarMonth.toLocaleDateString('en-US', {
+        timeZone: 'UTC',
+        month: 'long',
+        year: 'numeric'
+      });
+
+    const firstWeekday =
+      new Date(Date.UTC(year, month, 1)).getUTCDay();
+
+    const numberOfDays =
+      new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+
+    const today = dayKey(new Date());
+
+    let html = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+      .map(name => `<div class="calendar-heading">${name}</div>`)
+      .join('');
+
+    for (let blank = 0; blank < firstWeekday; blank++) {
+      html += '<div class="calendar-day blank"></div>';
+    }
+
+    for (let day = 1; day <= numberOfDays; day++) {
+      const key =
+        `${year}-${String(month + 1).padStart(2, '0')}-` +
+        String(day).padStart(2, '0');
+
+      const entries = bookingsForDay(key).map(booking => `
+        <button
+          type="button"
+          class="calendar-booking
+            ${booking.status === 'Out' ? 'checked-out' : ''}
+            ${isOverdue(booking) ? 'late' : ''}"
+          data-calendar-day="${key}"
+        >
+          ${safeText(itemName(booking))} × ${Number(booking.quantity)}<br>
+          ${safeText(booking.customer)}<br>
+          ${booking.status === 'Out' ? 'OUT' : 'RESERVED'}
+          ${isOverdue(booking) ? ' · OVERDUE' : ''}
+        </button>
+      `).join('');
+
+      html += `
+        <div class="calendar-day ${key === today ? 'today' : ''}">
+          <button type="button" class="calendar-date"
+            data-calendar-day="${key}">${day}</button>
+          ${entries}
+        </div>
+      `;
+    }
+
+    const trailingBlanks =
+      (7 - ((firstWeekday + numberOfDays) % 7)) % 7;
+
+    for (let blank = 0; blank < trailingBlanks; blank++) {
+      html += '<div class="calendar-day blank"></div>';
+    }
+
+    getElement('calendarGrid').innerHTML = html;
+    showDayDetails(selectedKey);
+  }
+
+  getElement('calendarGrid').onclick = event => {
+    const button = event.target.closest('[data-calendar-day]');
+
+    if (button) {
+      showDayDetails(button.dataset.calendarDay);
+    }
+  };
+
+  getElement('calendarPrevious').onclick = () => {
+    calendarMonth.setUTCMonth(calendarMonth.getUTCMonth() - 1);
+    selectedKey = calendarMonth.toISOString().slice(0, 10);
+    renderCalendar();
+  };
+
+  getElement('calendarNext').onclick = () => {
+    calendarMonth.setUTCMonth(calendarMonth.getUTCMonth() + 1);
+    selectedKey = calendarMonth.toISOString().slice(0, 10);
+    renderCalendar();
+  };
+
+  getElement('calendarToday').onclick = () => {
+    selectedKey = dayKey(new Date());
+
+    calendarMonth = new Date(
+      `${selectedKey.slice(0, 7)}-01T12:00:00Z`
+    );
+
+    renderCalendar();
+  };
+
+  document.querySelectorAll('#app [data-tab]').forEach(button => {
+    button.onclick = () => {
+      ['board', 'manager', 'calendar'].forEach(id => {
+        getElement(id).hidden = button.dataset.tab !== id;
+      });
+
+      if (button.dataset.tab === 'calendar') {
+        renderCalendar();
+      }
+    };
+  });
+
+  /*
+    Preserve item selection when refreshing the board.
+    Sort rentals by due date and refresh the calendar.
+  */
+  const originalRender = render;
+
+  render = function() {
+    const selectedItem = getElement('item').value;
+
+    bookings.sort(dueOrder);
+    originalRender();
+
+    if (
+      [...getElement('item').options]
+        .some(option => option.value === selectedItem)
+    ) {
+      getElement('item').value = selectedItem;
+    }
+
+    renderCalendar();
+  };
+
+  // Refresh overdue colors and day counts even without database changes.
+  setInterval(() => render(), 60000);
+
+  render();
+})();
+</script>
+</body></html>
