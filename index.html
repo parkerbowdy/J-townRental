@@ -815,17 +815,30 @@
       return data;
     }
 
-    async function load() {
-      const [inventoryResult, bookingsResult] = await Promise.all([
-        sb.from('rental_inventory').select('*').order('name'),
-        sb.from('rental_bookings').select('*').order('pickup_at')
-      ]);
+ async function load() {
+  try {
+    const [inventoryResult, bookingResult] = await Promise.all([
+      sb
+        .from('rental_inventory')
+        .select('*')
+        .order('name'),
 
-      if (inventoryResult.error || bookingsResult.error) {
-        E('error').textContent =
-          (inventoryResult.error || bookingsResult.error).message;
-        return;
-      }
+      call('staff_bookings')
+    ]);
+
+    if (inventoryResult.error) {
+      throw inventoryResult.error;
+    }
+
+    inventory = inventoryResult.data ?? [];
+    bookings = bookingResult.bookings ?? [];
+
+    render();
+  } catch (error) {
+    E('error').textContent =
+      error.message || 'Unable to load rentals.';
+  }
+}
 
     inventory = inventoryResult.data ?? [];
 bookings = bookingsResult.data ?? [];
