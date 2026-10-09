@@ -815,7 +815,7 @@
       return data;
     }
 
- async function load() {
+async function load() {
   try {
     const [inventoryResult, bookingResult] = await Promise.all([
       sb
@@ -840,30 +840,7 @@
   }
 }
 
-    inventory = inventoryResult.data ?? [];
-bookings = bookingsResult.data ?? [];
-
-render();
-
-const completedBookings = bookings.filter(booking =>
-  ['returned', 'cancelled'].includes(
-    String(booking.status || '').trim().toLowerCase()
-  )
-);
-
-E('history').innerHTML =
-  completedBookings
-    .map(rentalCard)
-    .join('') ||
-  '<p class="muted">No completed bookings loaded.</p>';
-
-E('success').textContent =
-  'History check: ' +
-  completedBookings.length +
-  ' returned/cancelled bookings loaded.';
-    }
-
-    function available(item) {
+function available(item) {
       return item.total - bookings
         .filter(booking =>
           booking.item_id === item.id &&
