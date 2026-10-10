@@ -452,14 +452,6 @@
 </p>
       </section>
 
-      <section>
-        <h2>Returned and cancelled</h2>
-        <p>
-  Past returned and cancelled rentals.
-  Use “Put back Out” if a rental was completed accidentally.
-</p>
-        <div id="history" class="cards"></div>
-      </section>
     </main>
 
     <main id="manager" hidden>
@@ -500,11 +492,20 @@
 
         <p id="managerMessage"></p>
 
-        <h2>Edit inventory</h2>
-        <div id="managerItems" class="cards"></div>
-      </section>
-    </main>
-  </div>
+             <h2>Edit inventory</h2>
+      <div id="managerItems" class="cards"></div>
+    </section>
+
+    <section>
+      <h2>Rental history</h2>
+      <p>
+        Past returned and cancelled rentals.
+        Use “Put back Out” if a rental was completed accidentally.
+      </p>
+      <div id="history" class="cards"></div>
+    </section>
+  </main>
+</div>
 
   <div id="editModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="editTitle">
     <div class="modal-card">
