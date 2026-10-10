@@ -908,32 +908,43 @@
           ? `<button onclick="editBooking('${booking.id}')">Edit</button>`
           : '';
 
-      const controls =
-        booking.status === 'Reserved'
-          ? `
-            ${editButton}
-            <button onclick="setStatus('${booking.id}','Out')">
-              Check out
-            </button>
-            <button
-              class="secondary"
-              onclick="setStatus('${booking.id}','Cancelled')"
-            >
-              Cancel
-            </button>
-          `
-          : booking.status === 'Out'
-          ? `
-            ${editButton}
-            <button
-              class="return-button"
-              onclick="setStatus('${booking.id}','Returned')"
-            >
-              RETURNED
-            </button>
-          `
-          : '';
+    const controls =
+  booking.status === 'Reserved'
+    ? `
+      ${editButton}
 
+      <button onclick="setStatus('${booking.id}','Out')">
+        Check out
+      </button>
+
+      <button
+        class="secondary"
+        onclick="setStatus('${booking.id}','Cancelled')"
+      >
+        Cancel
+      </button>
+    `
+    : booking.status === 'Out'
+    ? `
+      ${editButton}
+
+      <button
+        class="return-button"
+        onclick="setStatus('${booking.id}','Returned')"
+      >
+        RETURNED
+      </button>
+    `
+    : ['Returned', 'Cancelled'].includes(booking.status)
+    ? `
+      <button
+        type="button"
+        onclick="setStatus('${booking.id}','Out')"
+      >
+        Put back Out
+      </button>
+    `
+    : '';
       return `
         <div class="card">
           <b>${esc(itemName(booking))}</b> × ${booking.quantity}<br>
