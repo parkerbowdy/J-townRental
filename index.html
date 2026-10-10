@@ -454,7 +454,10 @@
 
       <section>
         <h2>Returned and cancelled</h2>
-        <p>History is shown for seven days after it is processed.</p>
+        <p>
+  Past returned and cancelled rentals.
+  Use “Put back Out” if a rental was completed accidentally.
+</p>
         <div id="history" class="cards"></div>
       </section>
     </main>
@@ -814,24 +817,37 @@
 
       return data;
     }
+async function load() {
+  try {
+    const [inventoryResult, bookingResult] = await Promise.all([
+      sb
+        .from('rental_inventory')
+        .select('*')
+        .order('name'),
 
-    async function load() {
-      const [inventoryResult, bookingsResult] = await Promise.all([
-        sb.from('rental_inventory').select('*').order('name'),
-        sb.from('rental_bookings').select('*').order('pickup_at')
-      ]);
+      call('staff_bookings')
+    ]);
 
-      if (inventoryResult.error || bookingsResult.error) {
-        E('error').textContent =
-          (inventoryResult.error || bookingsResult.error).message;
-        return;
-      }
-
-      inventory = inventoryResult.data;
-      bookings = bookingsResult.data;
-
-      render();
+    if (inventoryResult.error) {
+      throw inventoryResult.error;
     }
+
+    if (!Array.isArray(bookingResult.bookings)) {
+      throw Error(
+        'The server did not return the booking list. Deploy the updated rental-actions function.'
+      );
+    }
+
+    inventory = inventoryResult.data ?? [];
+    bookings = bookingResult.bookings;
+
+    render();
+    E('error').textContent = '';
+  } catch (error) {
+    E('error').textContent =
+      error.message || 'Unable to load rentals.';
+  }
+}
 
     function available(item) {
       return item.total - bookings
@@ -993,12 +1009,19 @@
         booking => booking.status === 'Out'
       );
 
-      const history = bookings.filter(booking =>
-        ['Returned', 'Cancelled'].includes(booking.status) &&
-        booking.completed_at &&
-        Date.now() - new Date(booking.completed_at) < 7 * 86400000
-      );
+    const history = bookings
+  .filter(booking =>
+    ['Returned', 'Cancelled'].includes(booking.status)
+  )
+  .sort((a, b) => {
+    const aTime =
+      new Date(a.completed_at || a.due_at).getTime() || 0;
 
+    const bTime =
+      new Date(b.completed_at || b.due_at).getTime() || 0;
+
+    return bTime - aTime;
+  });
       E('reserved').innerHTML =
         reserved.map(rentalCard).join('') ||
         '<p class="muted">Nothing reserved.</p>';
