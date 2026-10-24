@@ -1,0 +1,76 @@
+name: Apply approved rental UI update
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-rental-ui.yml'
+      - 'rental-dark.css'
+      - 'rental-ui.js'
+permissions:
+  contents: write
+  pages: write
+concurrency:
+  group: rental-ui-update
+  cancel-in-progress: false
+jobs:
+  patch-existing-pages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Check original files and apply targeted patches
+        shell: python
+        run: |
+          import pathlib, subprocess
+          expected = {'index.html': 'a97e29e63782316c2f97b16c94e6f67084bb4d0f', 'display.html': '0520fbdf7a0baa0ff545a7938a5d1b1fcd9c97d6'}
+          for name, sha in expected.items():
+              actual = subprocess.check_output(['git', 'hash-object', name], text=True).strip()
+              if actual != sha:
+                  raise SystemExit(f'{name} changed since review. Stopping without changing the pages.')
+          index = pathlib.Path('index.html').read_text()
+          replacements = {
+              "const PASSKEY_URL = SUPABASE_URL + '/functions/v1/verify-passkey';": "const PASSKEY_URL = SUPABASE_URL + '/functions/v1/rental-actions-v2';",
+              "const ACTIONS_URL = SUPABASE_URL + '/functions/v1/rental-actions';": "const ACTIONS_URL = SUPABASE_URL + '/functions/v1/rental-actions-v2';",
+              "passkey: E('pass').value": "action: 'unlock', passkey: E('pass').value",
+              "sessionStorage.setItem(EXPIRY, data.expires_at);": "sessionStorage.setItem(EXPIRY, data.expires_at || '9999-12-31T23:59:59.000Z');",
+              "'Unlocked until ' + new Date(expiry).toLocaleString();": "'Signed in on this device · no daily timeout';",
+              "sessionStorage.clear();": "sessionStorage.removeItem(SESSION); sessionStorage.removeItem(EXPIRY);"
+          }
+          for old, new in replacements.items():
+              if index.count(old) != 1:
+                  raise SystemExit('Expected exactly one authentication patch target: ' + old)
+              index = index.replace(old, new, 1)
+          index = index.replace('sessionStorage', 'localStorage')
+          pages = {'index.html': index, 'display.html': pathlib.Path('display.html').read_text()}
+          for name, content in pages.items():
+              if content.count('</head>') != 1 or content.count('</body>') != 1:
+                  raise SystemExit('Unexpected HTML structure: ' + name)
+              content = content.replace('</head>', '<link rel="stylesheet" href="rental-dark.css?v=20261023">\n</head>')
+              content = content.replace('</body>', '<script src="rental-ui.js?v=20261023"></script>\n</body>')
+              pathlib.Path(name).write_text(content)
+      - name: Check JavaScript syntax
+        run: node --check rental-ui.js
+      - name: Commit only the approved page patches
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          current=$(git ls-remote origin refs/heads/main | cut -f1)
+          test "$current" = "$EXPECTED_HEAD" || { echo 'Main changed during update; refusing to overwrite.'; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html display.html
+          git diff --cached --quiet && exit 0
+          git commit -m 'Apply dark theme, Dingo attachments, persistent sign-in and closing-time sleep'
+          git push origin HEAD:main
+      - name: Request rebuild of existing main-branch GitHub Pages site
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          source=$(gh api "repos/$REPOSITORY/pages" --jq '.source.branch // ""')
+          if [ "$source" = "main" ]; then
+            gh api --method POST "repos/$REPOSITORY/pages/builds"
+          else
+            echo 'Page files committed. Existing Pages source is not main; deployment needs a separate check.'
+          fi

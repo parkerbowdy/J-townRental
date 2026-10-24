@@ -1,0 +1,20 @@
+/* J-Town rental dark theme */
+:root { color-scheme: dark; }
+html, body { background:#0d1015 !important; color:#edf1f7 !important; }
+header, nav { background:#11151c !important; }
+section, .tile, .card, .equipment-tile, .modal-card, .display-rental, .calendar-day, .calendar-detail { background:#1a202a !important; color:#edf1f7 !important; border-color:#394352 !important; }
+input, select, textarea { background:#111720 !important; color:#f2f5fa !important; border-color:#536176 !important; }
+input:focus, select:focus, button:focus-visible { outline:2px solid #79b8ff; outline-offset:3px; }
+p, small, .muted, .equipment-tile small, .rental-phone, .rental-status, .calendar-legend { color:#b6c1d0 !important; }
+.link-button, .calendar-date { color:#d4deec !important; }
+.low, .calendar-booking { background:#44351a !important; color:#ffe6a0 !important; border-color:#bc9134 !important; }
+.none, .card.overdue-card, .display-rental.overdue-card, .calendar-detail.late, .calendar-booking.late, #overdueReturnModal .modal-card { background:#45202b !important; border-color:#fa657e !important; }
+.overdue, .error, #overdueReturnTitle, #overdueReturnMessage, .calendar-booking.late { color:#ff91a5 !important; }
+.due-ok, .success { color:#7fe0a0 !important; }
+.calendar-booking.checked-out:not(.late) { background:#203d61 !important; color:#c5e1ff !important; }
+.calendar-day.blank { background:#11151c !important; }
+.calendar-day.today { border-color:#7fe0a0 !important; }
+.jtown-attachment { display:block; color:#c7ddf8 !important; margin:5px 0; overflow-wrap:anywhere; }
+#jtownSleep { position:fixed; inset:0; z-index:2147483647; background:#000 !important; display:grid; place-items:center; }
+#jtownSleep[hidden] { display:none !important; }
+#jtownSleep button { background:#181818; color:#aaa; border:1px solid #444; border-radius:6px; padding:8px 12px; font:13px system-ui,sans-serif; cursor:pointer; }
