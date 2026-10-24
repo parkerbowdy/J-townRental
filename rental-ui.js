@@ -19,7 +19,9 @@
       input.placeholder = 'Enter attachment';
       label.appendChild(input);
       const form = byId(formId);
-      form.insertBefore(label, form.querySelector('button[type="submit"]') || form.lastElementChild);
+      const submit = form.querySelector('button[type="submit"]');
+      const anchor = Array.from(form.children).find(child => child.contains(submit)) || null;
+      form.insertBefore(label, anchor);
     }
     addField('bookingForm', 'dingoAttachment');
     addField('editBookingForm', 'editDingoAttachment');
