@@ -228,3 +228,91 @@
   setInterval(checkSleep, 1000);
   checkSleep();
 })();
+
+/* Delivery controls and larger display item names. */
+(() => {
+  'use strict';
+  const byId = id => document.getElementById(id);
+  const staff = !!byId('bookingForm');
+  const style = document.createElement('style');
+  style.textContent = `
+    .card.delivery-card, .display-rental.delivery-card,
+    .card.delivery-card.overdue-card, .display-rental.delivery-card.overdue-card {
+      background: #402259 !important;
+      border-color: #bd8ce8 !important;
+      color: #f5edff !important;
+    }
+    .delivery-label {
+      color: #edd5ff !important;
+      font-weight: 800;
+      font-size: 15px;
+      padding-top: 8px;
+      margin-top: 8px;
+      border-top: 1px solid #bd8ce866;
+    }
+    .display-rental.delivery-card { display: flex; flex-direction: column; }
+    .display-rental.delivery-card > * { flex-shrink: 0; }
+    .display-rental.delivery-card .delivery-label { margin-top: auto; }
+    .display-rental .rental-item { font-size: 22px !important; font-weight: 800; line-height: 1.15; }
+    .delivery-card .overdue { color: #ff91a5 !important; }
+  `;
+  document.head.appendChild(style);
+
+  function decorateDelivery(html, booking) {
+    if (booking.delivery !== true) return html;
+    html = html.replace(/class="(card\b[^\"]*|display-rental\b[^\"]*)"/, (_match, classes) => `class="${classes} delivery-card"`);
+    const end = html.lastIndexOf('</div>');
+    if (end < 0) return html;
+    return html.slice(0, end) + '<div class="delivery-label">Delivery</div>' + html.slice(end);
+  }
+
+  if (staff) {
+    function addDelivery(formId, inputId) {
+      const form = byId(formId);
+      const label = document.createElement('label');
+      label.textContent = 'Delivery';
+      const select = document.createElement('select');
+      select.id = inputId;
+      select.name = inputId;
+      select.innerHTML = '<option value="false" selected>No</option><option value="true">Yes</option>';
+      label.appendChild(select);
+      const submit = form.querySelector('button[type="submit"]');
+      const anchor = Array.from(form.children).find(child => child.contains(submit)) || null;
+      form.insertBefore(label, anchor);
+    }
+    addDelivery('bookingForm', 'delivery');
+    addDelivery('editBookingForm', 'editDelivery');
+
+    const previousCall = call;
+    call = function(action, payload = {}) {
+      if (action === 'create_booking' || action === 'update_booking') {
+        const inputId = action === 'update_booking' ? 'editDelivery' : 'delivery';
+        payload = { ...payload, delivery: byId(inputId).value === 'true' };
+      }
+      return previousCall(action, payload);
+    };
+    if (typeof window.editBooking === 'function') {
+      const previousEdit = window.editBooking;
+      window.editBooking = function(id, ...args) {
+        const result = previousEdit.call(this, id, ...args);
+        const fill = () => {
+          byId('editDelivery').value = bookings.find(booking => booking.id === id)?.delivery === true ? 'true' : 'false';
+        };
+        fill();
+        if (result && typeof result.then === 'function') result.then(fill).catch(console.error);
+        return result;
+      };
+    }
+    const previousRentalCard = rentalCard;
+    rentalCard = function(booking) {
+      return decorateDelivery(previousRentalCard(booking), booking);
+    };
+    render();
+  } else if (typeof card === 'function') {
+    const previousCard = card;
+    card = function(booking) {
+      return decorateDelivery(previousCard(booking), booking);
+    };
+    load();
+  }
+})();
