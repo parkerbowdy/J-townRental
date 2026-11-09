@@ -4,7 +4,7 @@
   const E = id => document.getElementById(id);
   const staff = !!E('bookingForm');
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const endpoint = SUPABASE_URL + '/functions/v1/rental-actions-v2';
+  const endpoint = SUPABASE_URL + '/functions/v1/rental-service-items';
   const style = document.createElement('style');
   style.textContent = `
     .rental-notes { white-space:pre-wrap; overflow-wrap:anywhere; color:#d5dfed; margin:8px 0; }
@@ -15,7 +15,7 @@
     .service-square { width:150px; height:150px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; overflow:auto; padding:10px; background:#342b1c; border:1px solid #c99d4a; border-radius:8px; }
     .service-square span { font-size:22px; line-height:1.15; font-weight:800; overflow-wrap:anywhere; }
     .service-reason { white-space:pre-wrap; overflow-wrap:anywhere; }
-    #serviceModal[hidden] { display:none; }
+    #serviceModal[hidden], #serviceOtherLabel[hidden] { display:none; }
   `;
   document.head.appendChild(style);
   let summary = null, holds = [], refreshing = null, serviceError = '';
@@ -37,14 +37,25 @@
     const anchor = Array.from(form.children).find(child => child.contains(submit)) || null;
     form.insertBefore(label, anchor);
   }
+  function syncOtherName() {
+    const other = E('serviceItem').value === 'other';
+    E('serviceOtherLabel').hidden = !other;
+    E('serviceOtherName').disabled = !other;
+    E('serviceOtherName').required = other;
+  }
+  function serviceSelection() {
+    const other = E('serviceItem').value === 'other';
+    return {item_id:other ? null : E('serviceItem').value,other_name:other ? E('serviceOtherName').value.trim() : null};
+  }
   function renderService() {
     if (staff) {
       const selected = E('serviceItem').value;
-      E('serviceItem').innerHTML = '<option value="">Choose item</option>' + inventory.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
+      E('serviceItem').innerHTML = '<option value="">Choose item</option>' + inventory.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('') + '<option value="other">Other / untracked item</option>';
       E('serviceItem').value = selected;
+      syncOtherName();
       E('serviceStatus').textContent = serviceError || (summary === null ? 'Checking service status; availability is temporarily unavailable.' : '');
       E('serviceRecords').innerHTML = holds.filter(hold => !hold.returned_to_service_at).map(hold => `
-        <div class="card"><b>${esc(inventory.find(item => item.id === hold.item_id)?.name || 'Item')} × ${Number(hold.quantity)}</b>
+        <div class="card"><b>${esc(inventory.find(item => item.id === hold.item_id)?.name || hold.other_name || 'Item')} × ${Number(hold.quantity)}</b>
         <div class="service-reason">${esc(hold.reason)}</div>
         <small>Out of service: ${esc(window.jtownFormatDate(hold.started_at))}</small><br>
         <button type="button" data-return-service="${esc(hold.id)}">Returned to Service</button></div>
@@ -61,7 +72,26 @@
       preview.textContent = input.value ? window.jtownFormatDate(input.value) : '';
     }
   }
-  const previousCall = staff ? call : null;
+  const baseCall = staff ? call : null;
+  const serviceActions = ['service_holds','mark_out_of_service','return_to_service'];
+  const previousCall = staff ? async function(action, payload = {}) {
+    if (!serviceActions.includes(action)) return baseCall(action,payload);
+    const response = await fetch(endpoint,{
+      method:'POST',
+      headers:{'Content-Type':'application/json',apikey:SUPABASE_KEY,Authorization:'Bearer ' + SUPABASE_KEY,'X-JTown-Session':localStorage.getItem('jtownSession') || ''},
+      body:JSON.stringify({...payload,action})
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (response.status === 401) {
+        localStorage.removeItem('jtownSession');
+        localStorage.removeItem('jtownSessionExpiry');
+        showLocked('Enter the store passkey to sign in on this device.');
+      }
+      throw Error(data.error || 'Request failed');
+    }
+    return data;
+  } : null;
   async function getSummary() {
     const response = await fetch(endpoint, {
       method:'POST', headers:{'Content-Type':'application/json', apikey:SUPABASE_KEY, Authorization:'Bearer ' + SUPABASE_KEY},
@@ -131,11 +161,13 @@
     modal.innerHTML = `<div class="modal-card"><h2 id="serviceTitle">Out of Service</h2>
       <form id="serviceForm">
         <label>Item<select id="serviceItem" required></select></label>
+        <label id="serviceOtherLabel" hidden>Untracked item name<input id="serviceOtherName" maxlength="200" placeholder="Enter item name" disabled></label>
         <label>Quantity<input id="serviceQuantity" type="number" min="1" step="1" value="1" required></label>
         <label class="notes-field">Reason<textarea id="serviceReason" rows="3" maxlength="2000" required></textarea></label>
         <div class="modal-actions"><button type="submit" id="saveService">Out of Service</button><button type="button" id="closeService" class="secondary">Cancel</button></div>
       </form><p id="serviceMessage" class="error" role="status"></p></div>`;
     document.body.appendChild(modal);
+    E('serviceItem').addEventListener('change',syncOtherName);
     const openButton = document.createElement('button');
     openButton.type = 'button';
     openButton.className = 'secondary';
@@ -150,10 +182,11 @@
     E('serviceForm').onsubmit = async event => {
       event.preventDefault();
       const quantity = Number(E('serviceQuantity').value), reason = E('serviceReason').value.trim();
-      if (!Number.isInteger(quantity) || quantity < 1 || !reason) { E('serviceMessage').textContent = 'Select an item, a positive whole-number quantity, and a reason.'; return; }
+      const selection = serviceSelection();
+      if (!Number.isInteger(quantity) || quantity < 1 || !reason || (!selection.item_id && !selection.other_name)) { E('serviceMessage').textContent = 'Choose an item or enter its name, a positive whole-number quantity, and a reason.'; return; }
       E('saveService').disabled = true;
       try {
-        const result = await call('mark_out_of_service', {item_id:E('serviceItem').value, quantity, reason});
+        const result = await call('mark_out_of_service', {...selection,quantity,reason});
         await refreshService(); closeModal();
         E('success').textContent = 'Equipment marked out of service.' + (result.warning ? ' ' + result.warning : '');
       } catch (error) { E('serviceMessage').textContent = error.message; }
@@ -164,7 +197,7 @@
       if (!button) return;
       const hold = holds.find(row => row.id === button.dataset.returnService);
       if (!hold) return;
-      const name = inventory.find(item => item.id === hold.item_id)?.name || 'Item';
+      const name = inventory.find(item => item.id === hold.item_id)?.name || hold.other_name || 'Item';
       if (!window.confirm(`Return ${name} × ${hold.quantity} to service?`)) return;
       button.disabled = true;
       try { await call('return_to_service',{id:hold.id}); await refreshService(); E('success').textContent = 'Equipment returned to service.'; }
