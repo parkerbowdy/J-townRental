@@ -1,0 +1,84 @@
+name: Apply notes dates and service UI
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/apply-service-ui.yml']
+permissions:
+  contents: write
+  pages: write
+concurrency:
+  group: rental-service-ui
+  cancel-in-progress: false
+jobs:
+  update-pages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify and patch existing pages
+        shell: python
+        run: |
+          import pathlib, re, subprocess
+          expected = {'index.html':'a1d0d93ccca7b2f711e39f8672b6188060cd0111','display.html':'739ee703bb95c9e8735ba0ebee65828ed142a636'}
+          for name, sha in expected.items():
+              if subprocess.check_output(['git','hash-object',name],text=True).strip() != sha:
+                  raise SystemExit(name + ' changed since review; refusing to overwrite.')
+          for name in expected:
+              page = pathlib.Path(name).read_text()
+              old = "const dateTime = value => new Date(value).toLocaleString();" if name == 'index.html' else "const dt=x=>new Date(x).toLocaleString();"
+              new = "const dateTime = value => window.jtownFormatDate(value);" if name == 'index.html' else "const dt=x=>window.jtownFormatDate(x);"
+              if page.count(old) != 1:
+                  raise SystemExit('Date formatter not found exactly once: ' + name)
+              page = page.replace(old,new,1)
+              pattern = r"  const bookingTime = value =>\s*new Date\(value\)\.toLocaleString\('en-US', \{.*?\n    \}\);"
+              page, count = re.subn(pattern,"  const bookingTime = value => window.jtownFormatDate(value);",page,flags=re.S)
+              if count != 1:
+                  raise SystemExit('Calendar formatter not found exactly once: ' + name)
+              old_title = "getElement('calendarDetailsTitle').textContent = label;"
+              if page.count(old_title) != 1:
+                  raise SystemExit('Calendar title not found exactly once: ' + name)
+              page = page.replace(old_title,"getElement('calendarDetailsTitle').textContent = window.jtownFormatDate(key + 'T12:00:00Z', false);",1)
+              if page.count('</head>') != 1 or page.count('</body>') != 1:
+                  raise SystemExit('Unexpected page structure: ' + name)
+              page = page.replace('</head>','<script src="rental-dates.js?v=20261109"></script>\n</head>',1)
+              page = page.replace('</body>','<script src="rental-service-ui.js?v=20261109"></script>\n</body>',1)
+              pathlib.Path(name).write_text(page)
+      - name: Check new and existing inline JavaScript syntax
+        shell: python
+        run: |
+          import pathlib,re,subprocess,tempfile,os
+          for name in ['rental-dates.js','rental-service-ui.js']:
+              subprocess.run(['node','--check',name],check=True)
+          for name in ['index.html','display.html']:
+              for script in re.findall(r'<script\b[^>]*>(.*?)</script>',pathlib.Path(name).read_text(),re.S):
+                  with tempfile.NamedTemporaryFile(mode='w',suffix='.js',delete=False) as file:
+                      file.write(script)
+                      path=file.name
+                  try:
+                      subprocess.run(['node','--check',path],check=True)
+                  finally:
+                      os.unlink(path)
+      - name: Commit the approved page patches
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          current=$(git ls-remote origin refs/heads/main | cut -f1)
+          test "$current" = "$EXPECTED_HEAD" || { echo 'Main changed; refusing to overwrite.'; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html display.html
+          git diff --cached --quiet && exit 0
+          git commit -m 'Enable rental notes, weekday dates and out-of-service controls'
+          git push origin HEAD:main
+      - name: Request existing GitHub Pages rebuild
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          source=$(gh api "repos/$REPOSITORY/pages" --jq '.source.branch // ""')
+          if [ "$source" = 'main' ]; then
+            gh api --method POST "repos/$REPOSITORY/pages/builds"
+          else
+            echo 'Page changes committed; existing Pages source needs a separate deployment check.'
+          fi
