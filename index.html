@@ -317,6 +317,7 @@
     }
   </style>
 <link rel="stylesheet" href="rental-dark.css?v=20261023">
+<script src="rental-dates.js?v=20261109"></script>
 </head>
 
 <body>
@@ -688,7 +689,7 @@
         "'": '&#39;'
       }[character]));
 
-    const dateTime = value => new Date(value).toLocaleString();
+    const dateTime = value => window.jtownFormatDate(value);
 
     const itemName = booking =>
       inventory.find(item => item.id === booking.item_id)?.name ||
@@ -1529,14 +1530,7 @@ function setDue() {
       "'": '&#39;'
     }[character]));
 
-  const bookingTime = value =>
-    new Date(value).toLocaleString('en-US', {
-      timeZone: STORE_ZONE,
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    });
+  const bookingTime = value => window.jtownFormatDate(value);
 
   function dayKey(value) {
     const parts = new Intl.DateTimeFormat('en-US', {
@@ -2102,7 +2096,7 @@ document.addEventListener('keydown', event => {
         year: 'numeric'
       });
 
-    getElement('calendarDetailsTitle').textContent = label;
+    getElement('calendarDetailsTitle').textContent = window.jtownFormatDate(key + 'T12:00:00Z', false);
 
     getElement('calendarDetails').innerHTML =
       bookingsForDay(key).map(booking => `
@@ -2264,5 +2258,6 @@ document.addEventListener('keydown', event => {
 })();
 </script>
 <script src="rental-ui.js?v=20261023"></script>
+<script src="rental-service-ui.js?v=20261109"></script>
 </body>
 </html>
